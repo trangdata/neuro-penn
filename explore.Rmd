@@ -1,0 +1,39 @@
+---
+title: "Neuroanalysis"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+theme_set(theme_bw() + 
+            theme(legend.title = element_blank(),
+                  panel.grid.minor = element_blank()))
+```
+
+```{r}
+labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
+sum_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
+obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
+loinc <- read_csv('../thrombotic-penn/data/loinc-map.csv')
+```
+
+```{r}
+penn_labs <- labs_raw %>% 
+  left_join(loinc, by = c('concept_code' = 'LOINC')) %>% 
+  pivot_wider(id_cols = c(patient_num, days_since_admission), 
+              names_from = short_name, values_from = value,
+              values_fn = median) %>%
+  arrange(patient_num, days_since_admission) %>% 
+  rownames_to_column('id') %>%
+  rename('covid_id' = patient_num, 'time' = days_since_admission) %>% 
+  mutate(id = as.integer(id)) %>% 
+  {.}
+non_lab_value_names <- c('id', 'covid_id', 'time')
+lab_value_names <- setdiff(names(penn_labs), non_lab_value_names)
+```
+
+```{r}
+table(obs_raw$concept_type)
+```
+
