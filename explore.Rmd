@@ -5,6 +5,7 @@ output: html_document
 
 ```{r}
 library(tidyverse)
+library(readxl)
 theme_set(theme_bw() + 
             theme(legend.title = element_blank(),
                   panel.grid.minor = element_blank()))
@@ -13,9 +14,83 @@ theme_set(theme_bw() +
 ```{r}
 labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
-sum_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
+demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
 obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
-loinc <- read_csv('../thrombotic-penn/data/loinc-map.csv')
+loinc <- read_csv('../thrombotic-penn/public-data/penn-loinc-map.csv')
+neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
+  rename('icd' = `ICD-10`)
+
+neuro_patients <- obs_raw %>% 
+  filter(concept_code %in% neuro_icds_10$icd) %>% 
+  distinct(patient_num, concept_code)
+
+severe_df <- clin_raw %>% 
+  select(patient_num, severe) %>% 
+  group_by(patient_num) %>% 
+  summarise(ever_severe = max(severe), .groups = 'drop')
+
+death_df <- clin_raw %>% 
+  select(patient_num, deceased) %>% 
+  group_by(patient_num) %>% 
+  summarise(death = max(deceased), .groups = 'drop')
+
+clinical_course <- clin_raw %>% 
+  group_by(patient_num) %>% 
+  mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
+  ungroup()
+
+readmissions <- clinical_course %>% 
+  filter(delta_hospitalized != 0) %>% 
+  add_count(patient_num, name = 'status_changes') %>% 
+  filter(status_changes > 1) %>% 
+  mutate(n_readmissions = (status_changes - 1)/2) %>% 
+  arrange(desc(n_readmissions))
+
+length(unique(readmissions$patient_num))
+
+re_admin_stats <- readmissions %>% 
+  select(patient_num, n_readmissions) %>% 
+  distinct() %>% 
+  count(n_readmissions)
+
+re_admin_stats %>% 
+  ggplot() +
+  geom_col(aes(x = n_readmissions, y = n))
+```
+
+## Demographics (Table 1)
+
+```{r}
+colnames(demo_raw)
+demo_df <- demo_raw %>% 
+  mutate(time_to_severe = severe_date_shift - admission_date_shift,
+         time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
+         time_to_death = death_date_shift - admission_date_shift,
+         time_to_death = ifelse(time_to_death < 0, NA, time_to_death),
+         readmitted = patient_num %in% readmissions$patient_num,
+         neuro_cond = as.factor(patient_num %in% neuro_patients$patient_num) %>% 
+           fct_recode(`Has neurological condition` = "TRUE",
+                      `No neurological condition` = "FALSE"),
+         Survival = as.factor(deceased) %>% 
+           fct_recode(Alive = "0", Deceased = "1"),
+         Severity = as.factor(severe) %>% 
+           fct_recode(Severe = "1", `Non-severe` = "0"),
+         ) %>% 
+  select(patient_num, Sex = sex, 
+         `Age Group` = age_group, 
+         Race = race, 
+         Severity, Survival, 
+         `Time to severity onset (days)` = time_to_severe, 
+         `Time to death (days)` = time_to_death, readmitted, neuro_cond)
+
+demo_table <- table1::table1(
+  ~ Sex + `Age Group` + Race + Severity + 
+    Survival + `Time to severity onset (days)` + `Time to death (days)` 
+  | neuro_cond,
+  data = demo_df,
+  overall = "Total",
+  export = "results/demographics.csv")
+demo_table
 ```
 
 ```{r}
@@ -33,7 +108,66 @@ non_lab_value_names <- c('id', 'covid_id', 'time')
 lab_value_names <- setdiff(names(penn_labs), non_lab_value_names)
 ```
 
+
+## Short term
+
+Do hospitalized COVID-19 patients with neurological conditions have a different short-term natural history (hospital days, death, severity, readmission) from those without?
+
 ```{r}
-table(obs_raw$concept_type)
+days_count_min_max <- obs_raw %>%
+  group_by(patient_num) %>%
+  summarise(
+    distinct_days = n_distinct(days_since_admission),
+    min_hos = min(days_since_admission),
+    n_stay = max(days_since_admission),
+    .groups = 'drop'
+  ) %>% 
+  mutate(neuro_cond = patient_num %in% neuro_patients$patient_num)
+
+days_count_min_max %>% 
+  ggplot(aes(x = neuro_cond, y = n_stay, fill = neuro_cond, color = neuro_cond)) +
+  # geom_violin() +
+  geom_dotplot(binaxis = "y", stackdir = "centerwhole", binwidth = 1)
+
+days_count_min_max %>% 
+  ggplot(aes(x = neuro_cond, y = n_stay, fill = neuro_cond)) +
+  # geom_violin() +
+  # geom_dotplot(binaxis = "y", stackdir = "centerwhole", binwidth = 1) +
+  geom_boxplot()
+
+lm(n_stay ~ neuro_cond, data = days_count_min_max) %>% 
+  summary()
+```
+
+```{r}
+neuro_patients %>% 
+  left_join(days_count_min_max, by = 'patient_num') %>% 
+  mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
+  ggplot(aes(x = concept_code, y = n_stay, fill = concept_code)) +
+  # geom_violin() +
+  # geom_dotplot(binaxis = "y", stackdir = "centerwhole", binwidth = 1) +
+  geom_boxplot() + 
+  scale_fill_viridis_d() +
+  NULL
+```
+
+```{r}
+days_count_min_max %>% 
+  left_join(severe_df, by = 'patient_num') %>% 
+  select(neuro_cond, ever_severe) %>% 
+  table()
+days_count_min_max %>% 
+  left_join(severe_df, by = 'patient_num') %>% 
+  lm(ever_severe ~ neuro_cond, data = .) %>% 
+  summary()    
+
+days_count_min_max %>% 
+  left_join(death_df, by = 'patient_num') %>% 
+  select(neuro_cond, death) %>% 
+  table()
+days_count_min_max %>% 
+  left_join(death_df, by = 'patient_num') %>% 
+  lm(death ~ neuro_cond, data = .) %>% 
+  summary()
 ```
 
