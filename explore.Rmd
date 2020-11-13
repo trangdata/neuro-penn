@@ -12,7 +12,7 @@ theme_set(theme_bw() +
 ```
 
 ```{r}
-labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+# labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
 demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
 obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
@@ -93,8 +93,8 @@ demo_table <- table1::table1(
 demo_table
 ```
 
-```{r}
-penn_labs <- labs_raw %>% 
+```{r eval=FALSE, include=FALSE}
+penn_labs <- obs_raw %>% 
   left_join(loinc, by = c('concept_code' = 'LOINC')) %>% 
   pivot_wider(id_cols = c(patient_num, days_since_admission), 
               names_from = short_name, values_from = value,
