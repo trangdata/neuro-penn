@@ -74,3 +74,8 @@ my_fish <- function(df) {
     c(p_value = res$p.value[2,2]) %>% # get p-value from fisher exact
     as.matrix() %>% t() %>% data.frame()
 }
+
+my_fish_warning <- function(x){
+  tryCatch(cbind(my_fish(x), warning = 'No warning'),
+           warning = function(w) return(cbind(my_fish(x), warning = w$message)))
+}
