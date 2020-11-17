@@ -1,0 +1,21 @@
+concept_code,warning,lestimate,drr,ci_drr,p_fdr
+R41,No warning,0.42,34,"(26, 42)",7.7e-25
+G93,No warning,0.34,26,"(20, 33)",4.7e-21
+G72,No warning,0.06,4,"(3, 6)",5e-15
+G40,No warning,0.09,6,"(4, 9)",3.4e-06
+I67,No warning,0.07,5,"(3, 8)",6e-05
+I61,No warning,0.03,2,"(1, 4)",0.00038
+I62,No warning,0.03,2,"(1, 3)",0.00052
+I60,No warning,0.02,2,"(1, 3)",0.0021
+H54,No warning,0.02,2,"(0, 3)",0.025
+G04,Chi-squared approximation may be incorrect,0.01,1,"(0, 1)",0.064
+F29,No warning,-0.02,-1,"(-3, 0)",0.066
+G45,No warning,0.02,2,"(0, 3)",0.067
+G46,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.24
+R42,No warning,-0.02,-1,"(-4, 1)",0.5
+R43,No warning,-0.01,-1,"(-1, 0)",0.5
+G61,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.61
+M60,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.61
+G44,No warning,0,0,"(-1, 1)",0.71
+G03,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.72
+R27,No warning,-0,-0,"(-1, 1)",1

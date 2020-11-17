@@ -79,3 +79,69 @@ my_fish_warning <- function(x){
   tryCatch(cbind(my_fish(x), warning = 'No warning'),
            warning = function(w) return(cbind(my_fish(x), warning = w$message)))
 }
+
+plot_enrich <- function(
+  plot_obs_exp_left, plot_obs_exp_right, filtered_obs_exp, nudge = 3){
+
+  enrichment_plot_left <- plot_obs_exp_left %>%
+    ggplot(aes(y = fct_relevel(concept_code, as.character(filtered_obs_exp$concept_code)))) +
+    geom_vline(aes(xintercept = 0), linetype = 2) +
+    geom_pointrange(
+      aes(x = lestimate, xmin = llower, xmax = lupper,
+          group = concept_code, color = presentation),
+      stroke = 0.3, fatten = 2
+    ) +
+    scale_color_identity(guide = FALSE) +
+    labs(y = NULL, x = bquote(Log[2] ~ 'enrichment, 95% CI')) +
+    theme(axis.title = element_text(size = 9),
+          panel.grid.minor = element_blank(),
+          plot.margin = margin(20, 2, 5.5, 5.5, unit = 'pt')) +
+    # scale_x_discrete(position = 'top', labels = NULL) +
+    scale_x_reverse()
+
+  over_severe_icds <- plot_obs_exp_right %>%
+    filter(over_sev > 0) %>%
+    pull(concept_code)
+
+  enrichment_plot_right <- plot_obs_exp_right %>%
+    ggplot(aes(
+      x = Observed,
+      y = full_icd %>%
+        fct_relevel(as.character(filtered_obs_exp$full_icd)))) +
+    geom_segment(aes(yend = full_icd,
+                     xend = Expected, color = presentation)) +
+    scale_color_identity(guide = FALSE) +
+    geom_point(
+      data = . %>%
+        pivot_longer(c(Observed, Expected), names_to = 'OE'),
+      aes(x = value,
+          y = fct_relevel(full_icd, as.character(filtered_obs_exp$full_icd)),
+          shape = OE), color = 'grey20') +
+    labs(y = NULL, x = 'Number of ever severe patients') +
+    theme(
+      axis.title = element_text(size = 9),
+      panel.grid.minor = element_blank(),
+      legend.position = c(0.78 , 0.1),
+      axis.text.y = element_text(
+        color = as.character(plot_obs_exp_right$presentation),
+        hjust = 0.5),
+      legend.background = element_blank(),
+      legend.key.height = unit(3, 'mm'),
+      legend.key.width = unit(3, 'mm'),
+      plot.margin = margin(20, 5.5, 8.5, 2, unit = 'pt')
+    ) +
+    scale_x_sqrt(
+      # breaks = c(100, 1000, 3000),
+      expand = expansion(add = c(0, 10))) +
+    geom_text(
+      data = . %>% filter(!(concept_code %in% over_severe_icds)),
+      nudge_x = - nudge, aes(label = round(over_sev, 0)), size = 2.5) +
+    geom_text(
+      data = . %>% filter(concept_code %in% over_severe_icds),
+      nudge_x = nudge, aes(label = round(over_sev, 0)), size = 2.5)
+
+  enrichment_plot <- cowplot::plot_grid(enrichment_plot_left, enrichment_plot_right,
+                                        rel_widths = c(1, 2.8))
+  enrichment_plot
+
+}
