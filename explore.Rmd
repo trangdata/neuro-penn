@@ -67,9 +67,14 @@ days_count_min_max <- obs_raw %>%
   )
 
 demo_df <- demo_raw %>% 
-  mutate(time_to_severe = severe_date_shift - admission_date_shift,
+  # please comment out the three following lines of renamew,
+  # this is only for Penn-specific data
+  rename('severe_date' = severe_date_shift, 
+         'admission_date' = admission_date_shift,
+         'death_date' = death_date_shift) %>% 
+  mutate(time_to_severe = severe_date - admission_date,
          time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
-         time_to_death = death_date_shift - admission_date_shift,
+         time_to_death = death_date - admission_date,
          time_to_death = ifelse(time_to_death < 0, NA, time_to_death),
          readmitted = patient_num %in% readmissions$patient_num,
          neuro_cond = as.factor(patient_num %in% neuro_patients$patient_num) %>% 
