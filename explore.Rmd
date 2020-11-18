@@ -19,7 +19,7 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
 demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
 obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
-loinc <- read_csv('../thrombotic-penn/public-data/penn-loinc-map.csv')
+loinc <- read_csv('public-data/penn-loinc-map.csv')
 neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
 
