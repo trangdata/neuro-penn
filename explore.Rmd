@@ -24,7 +24,9 @@ neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>%
   rename('icd' = `ICD-10`)
 
 neuro_patients <- obs_raw %>% 
-  filter(concept_code %in% neuro_icds_10$icd) %>% 
+  filter(
+    days_since_admission > 0,
+    concept_code %in% neuro_icds_10$icd) %>% 
   distinct(patient_num, concept_code)
 
 non_neuro_patients <- data.frame(
@@ -62,7 +64,7 @@ days_count_min_max <- obs_raw %>%
   summarise(
     distinct_days = n_distinct(days_since_admission),
     min_hos = min(days_since_admission),
-    n_stay = max(days_since_admission),
+    # n_stay = max(days_since_admission),
     .groups = 'drop'
   )
 
@@ -71,7 +73,8 @@ demo_df <- demo_raw %>%
   # this is only for Penn-specific data
   rename('severe_date' = severe_date_shift, 
          'admission_date' = admission_date_shift,
-         'death_date' = death_date_shift) %>% 
+         'death_date' = death_date_shift,
+         'last_discharge_date' = last_discharge_date_shift) %>% 
   mutate(time_to_severe = severe_date - admission_date,
          time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
          time_to_death = death_date - admission_date,
@@ -87,6 +90,8 @@ demo_df <- demo_raw %>%
          age_group = as.factor(age_group),
          Severity = as.factor(severe) %>% 
            fct_recode(Severe = "1", `Non-severe` = "0"),
+         n_stay = as.numeric(last_discharge_date - admission_date,
+                             units="days")
          ) %>% 
   left_join(days_count_min_max, by = 'patient_num')
 
@@ -104,14 +109,15 @@ nat_hist_df <- clin_raw %>%
 
 ```{r}
 demo_table <- table1::table1(
-  ~ Sex + `Age Group` + Race + Severity + 
-    Survival + `Time to severity onset (days)` + `Time to death (days)` 
+  ~ Sex + `Age Group` + Race + Severity + Survival + Readmitted +
+    `Time to severity onset (days)` + `Time to death (days)` 
   | neuro_cond,
   data = demo_df %>% 
   select(patient_num, Sex = sex, `Age Group` = age_group, 
          Race = race, Severity, Survival, 
          `Time to severity onset (days)` = time_to_severe, 
-         `Time to death (days)` = time_to_death, readmitted, neuro_cond),
+         `Time to death (days)` = time_to_death, 
+         Readmitted = readmitted, neuro_cond),
   overall = "Total",
   export = "results/demographics.csv")
 demo_table
@@ -140,16 +146,32 @@ Do hospitalized COVID-19 patients with neurological conditions have a different 
 
 ```{r}
 demo_df %>% 
-  ggplot(aes(x = neuro_cond, y = n_stay, fill = neuro_cond, color = neuro_cond)) +
-  geom_dotplot(binaxis = "y", stackdir = "centerwhole", binwidth = 1) +
-  scale_fill_discrete(guide = FALSE) +
-  scale_color_discrete(guide = FALSE)
+  ggplot(aes(x = Severity, y = n_stay, fill = neuro_cond)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = NULL , subtitle = 'All patients') +
+  NULL
 
 demo_df %>% 
-  ggplot(aes(x = neuro_cond, y = n_stay, fill = neuro_cond)) +
+  filter(!readmitted, !deceased) %>% 
+  ggplot(aes(x = Severity, y = n_stay, fill = neuro_cond)) +
   geom_boxplot() +
-  scale_fill_discrete(guide = FALSE)
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = NULL , subtitle =  'Patients who survived, no readmission') +
+  NULL
 
+# demo_df %>% 
+#   ggplot(aes(x = neuro_cond, y = n_stay)) +
+#   geom_boxplot() +
+#   scale_fill_discrete(guide = FALSE)
+# 
+# demo_df %>% 
+#   filter(!readmitted, !deceased) %>% 
+#   ggplot(aes(x = neuro_cond, y = n_stay)) +
+#   geom_boxplot() +
+#   scale_fill_discrete(guide = FALSE)
+
+  
 lm(n_stay ~ neuro_cond + race
    # + sex + age_group
    , data = demo_df) %>% 
@@ -157,14 +179,20 @@ lm(n_stay ~ neuro_cond + race
 ```
 
 NN: non-neurological code
+Check: after admission vs. before?
 
-```{r}
+```{r fig.width=10}
 neuro_patients %>% 
   bind_rows(non_neuro_patients) %>% 
   left_join(demo_df, by = 'patient_num') %>% 
-  mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
-  ggplot(aes(x = concept_code, y = n_stay, fill = concept_code)) +
-  labs(x = NULL) +
+  # mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  mutate(full_icd = case_when(
+    concept_code == 'NN' ~ 'No neurological condition',
+    TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
+             as.factor() %>% fct_reorder(n_stay)) %>%
+  ggplot(aes(y = full_icd, x = n_stay, fill = full_icd)) +
+  labs(y = NULL) +
   geom_boxplot() + 
   scale_fill_viridis_d(guide = FALSE) +
   gghighlight(concept_code != 'NN') +

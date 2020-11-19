@@ -1,21 +1,21 @@
 concept_code,warning,lestimate,drr,ci_drr,p_fdr
-R41,No warning,0.46,37,"(31, 45)",2.1e-35
-G93,No warning,0.39,31,"(26, 37)",8.4e-34
-G72,No warning,0.04,3,"(2, 4)",7.2e-11
-I67,No warning,0.1,7,"(5, 9)",1.4e-09
-G40,No warning,0.08,6,"(4, 8)",3.6e-06
-G45,No warning,0.04,3,"(1, 4)",0.0035
-I60,No warning,0.02,1,"(1, 2)",0.0035
-I62,No warning,0.02,1,"(1, 2)",0.0091
-M60,Chi-squared approximation may be incorrect,0.01,1,"(0, 1)",0.019
-G61,Chi-squared approximation may be incorrect,0.01,1,"(0, 1)",0.047
-I61,No warning,0.02,1,"(0, 2)",0.047
-R27,No warning,0.02,1,"(0, 2)",0.062
-G04,Chi-squared approximation may be incorrect,0.01,1,"(0, 1)",0.065
-H54,No warning,0.02,1,"(0, 3)",0.075
-G46,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.17
-G03,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.28
-F29,No warning,0.01,0,"(-1, 2)",0.62
-R42,No warning,0.01,1,"(-2, 3)",0.83
-G44,No warning,0,0,"(-1, 1)",1
-R43,No warning,-0,-0,"(-1, 1)",1
+R41,No warning,0.41,33,"(28, 38)",1.4e-47
+G93,No warning,0.31,24,"(20, 29)",1.7e-38
+G40,No warning,0.09,6,"(4, 8)",8.8e-10
+I67,No warning,0.06,4,"(3, 6)",1.1e-09
+G72,No warning,0.03,2,"(1, 3)",7.1e-08
+I61,No warning,0.02,2,"(1, 2)",0.0014
+I60,No warning,0.02,1,"(1, 2)",0.0032
+I62,No warning,0.02,1,"(0, 2)",0.0081
+G61,Chi-squared approximation may be incorrect,0.01,1,"(0, 1)",0.038
+G45,No warning,0.02,1,"(0, 3)",0.06
+R27,No warning,0.01,1,"(0, 1)",0.074
+H54,No warning,0.01,1,"(0, 2)",0.08
+G04,Chi-squared approximation may be incorrect,0.01,0,"(0, 1)",0.2
+G46,Chi-squared approximation may be incorrect,0,0,"(0, 0)",0.34
+M60,Chi-squared approximation may be incorrect,0,0,"(0, 0)",0.34
+G03,Chi-squared approximation may be incorrect,0,0,"(0, 0)",0.56
+G44,No warning,-0,-0,"(-1, 0)",0.56
+R43,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.56
+R42,No warning,0.01,1,"(-1, 2)",0.59
+F29,No warning,-0,-0,"(-1, 1)",1

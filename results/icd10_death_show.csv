@@ -1,21 +1,21 @@
 concept_code,warning,lestimate,drr,ci_drr,p_fdr
-G93,No warning,0.82,77,"(55, 102)",2e-30
-R41,No warning,0.52,43,"(27, 61)",1.9e-12
-G40,No warning,0.09,6,"(2, 12)",0.013
-R42,No warning,-0.09,-6,"(-9, -3)",0.013
-I61,No warning,0.04,3,"(0, 6)",0.015
-G44,Chi-squared approximation may be incorrect,-0.03,-2,"(-3, -1)",0.025
-I67,No warning,0.06,4,"(0, 9)",0.057
-R43,Chi-squared approximation may be incorrect,-0.02,-2,"(-2, -1)",0.069
-I62,Chi-squared approximation may be incorrect,0.02,1,"(-1, 3)",0.24
-H54,No warning,-0.02,-2,"(-3, 0)",0.3
-R27,Chi-squared approximation may be incorrect,0.02,1,"(-1, 3)",0.36
-F29,No warning,-0.02,-1,"(-3, 0)",0.48
-G45,No warning,-0.02,-1,"(-3, 1)",0.48
-G46,Chi-squared approximation may be incorrect,0,0,"(0, 1)",0.53
-G03,Chi-squared approximation may be incorrect,0,0,"(-1, 1)",0.67
-I60,Chi-squared approximation may be incorrect,0,0,"(-1, 2)",0.69
-G61,Chi-squared approximation may be incorrect,-0.01,-0,"(-1, 0)",0.72
-G04,Chi-squared approximation may be incorrect,0,0,"(-1, 1)",1
-G72,Chi-squared approximation may be incorrect,-0,-0,"(-2, 1)",1
-M60,Chi-squared approximation may be incorrect,-0.01,-0,"(0, 0)",1
+G93,No warning,0.33,26,"(16, 36)",4.9e-11
+R41,No warning,0.21,15,"(7, 25)",5e-04
+R42,No warning,-0.06,-4,"(-5, -2)",0.012
+I67,No warning,0.04,3,"(0, 6)",0.15
+I62,Chi-squared approximation may be incorrect,0.02,1,"(0, 3)",0.16
+F29,Chi-squared approximation may be incorrect,-0.02,-2,"(-2, -1)",0.27
+G44,Chi-squared approximation may be incorrect,-0.01,-1,"(-1, -1)",0.62
+I61,Chi-squared approximation may be incorrect,0.01,1,"(-1, 2)",0.62
+H54,Chi-squared approximation may be incorrect,-0.01,-1,"(-2, 0)",0.78
+R27,Chi-squared approximation may be incorrect,0.01,1,"(-1, 2)",0.82
+G04,Chi-squared approximation may be incorrect,0,0,"(-1, 1)",0.95
+G40,No warning,0.01,1,"(-2, 4)",0.95
+G03,NaNs produced,-0,-0,"(NaN, Inf)",1
+G45,No warning,-0.01,-0,"(-2, 1)",1
+G46,NaNs produced,-0,-0,"(NaN, Inf)",1
+G61,Chi-squared approximation may be incorrect,-0,-0,"(0, 0)",1
+G72,Chi-squared approximation may be incorrect,-0.01,-0,"(-2, 1)",1
+I60,Chi-squared approximation may be incorrect,0,0,"(-1, 2)",1
+M60,NaNs produced,-0,-0,"(NaN, Inf)",1
+R43,Chi-squared approximation may be incorrect,-0,-0,"(0, 0)",1
