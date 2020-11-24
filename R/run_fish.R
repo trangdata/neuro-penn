@@ -1,7 +1,16 @@
 # library(DT)
 library(glue)
 # ori_variable = 'ever_severe'
-run_fish <- function(ori_variable){
+run_fish <- function(ori_variable = c('ever_severe', 'death', 'readmitted')){
+  ori_variable <- match.arg(ori_variable)
+
+  x_labs <- switch(
+    ori_variable,
+    ever_severe = 'Number of ever severe patients',
+    death = 'Number of patients who died',
+    readmitted = 'Number of patients who were readmitted'
+  )
+
   severe_df <- nat_hist_df %>%
     rename('new_var' = !!sym(ori_variable))
 
@@ -90,17 +99,17 @@ run_fish <- function(ori_variable){
            presentation, over_sev, Observed, Expected) %>%
     pivot_longer(- c(concept_code, full_icd, presentation, over_sev), names_to = 'type') %>%
     mutate(subtype = ifelse(type == 'Expected' | type == 'Observed',
-                            'Sqrt(number of honorees)',
+                            'Sqrt(number of patients)',
                             'Log2 enrichment, 95% CI')) %>%
     pivot_wider(names_from = type) %>%
     mutate(presentation = as.factor(presentation),
            concept_code = fct_reorder(concept_code, Observed))
 
   plot_obs_exp_right <- plot_obs_exp %>%
-    filter(subtype == 'Sqrt(number of honorees)')
+    filter(subtype == 'Sqrt(number of patients)')
 
   plot_obs_exp_left <- plot_obs_exp %>%
-    filter(subtype != 'Sqrt(number of honorees)')
+    filter(subtype != 'Sqrt(number of patients)')
 
   title <- cowplot::ggdraw() +
     cowplot::draw_label(ori_variable, x = 0, hjust = 0) +
@@ -111,6 +120,7 @@ run_fish <- function(ori_variable){
       plot_obs_exp_left,
       plot_obs_exp_right,
       filtered_obs_exp,
+      xlab = x_labs,
       nudge = 2),
     ncol = 1,
     rel_heights = c(0.05, 1)

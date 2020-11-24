@@ -81,7 +81,7 @@ my_fish_warning <- function(x){
 }
 
 plot_enrich <- function(
-  plot_obs_exp_left, plot_obs_exp_right, filtered_obs_exp, nudge = 3){
+  plot_obs_exp_left, plot_obs_exp_right, filtered_obs_exp, xlab, nudge = 3){
 
   enrichment_plot_left <- plot_obs_exp_left %>%
     ggplot(aes(y = fct_relevel(concept_code, as.character(filtered_obs_exp$concept_code)))) +
@@ -117,7 +117,7 @@ plot_enrich <- function(
       aes(x = value,
           y = fct_relevel(full_icd, as.character(filtered_obs_exp$full_icd)),
           shape = OE), color = 'grey20') +
-    labs(y = NULL, x = 'Number of ever severe patients') +
+    labs(y = NULL, x = xlab) +
     theme(
       axis.title = element_text(size = 9),
       panel.grid.minor = element_blank(),
