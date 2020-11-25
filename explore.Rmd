@@ -203,7 +203,7 @@ neuro_patients %>%
 
 ### Death, severity, readmission
 
-```{r warning=FALSE, fig.width=10}
+```{r warning=FALSE, fig.width=10, eval=FALSE}
 run_fish('death')
 run_fish('ever_severe')
 run_fish('readmitted')
@@ -238,3 +238,99 @@ bind_rows(summarise_nat_hist('death'),
           summarise_nat_hist('readmitted'))
 ```
 
+## Comorbidity Mapping
+
+```{r}
+# remotes::install_github('jackwasey/icd')
+library(icd)
+library(kableExtra)
+# library(purrr)
+# library(tableone)
+```
+
+### Charlson Mapping
+
+The following will map ICD codes to the codes that comprise the Charlson Comorbidity Index.
+The Comorbidity Score is calculated based on both Charlson and Quan scoring systems (differing weights given to comorbidities).
+If a site has ICD9 or ICD 10 Codes, the mapping must be performed separately and then results can be combined
+
+```{r}
+# sourced from R/Comorbidity_Mapping_Functions.R
+comorb <- map_charlson_codes(obs_raw) 
+
+comorb_list_names <- comorb$comorb_list_names
+icd_map <- comorb$icd_map %>% 
+  ungroup()
+index_scores <- comorb$index_scores %>% ungroup()
+table1 <- comorb$table1
+mapped_codes_table <- comorb$mapped_codes_table
+```
+
+### Comorbidity Abbreviation Table
+```{r}
+comorb_list_names <- comorb_list_names %>%
+  select(Comorbidity, Name)
+colnames(comorb_list_names) <- c("Abbreviation", "Comorbidity")
+
+comorb_list_names
+```
+
+
+### Display Comorbidity Matrix
+
+The following code will print the comorbidity matrix with a subset of patients (n)
+```{r}
+icd_map %>% 
+  select(- patient_num) %>% 
+  cor() %>% 
+  heatmap()
+
+icd_map %>% 
+  select(- patient_num) %>% 
+  pivot_longer(everything()) %>% 
+  filter(value != 0) %>% 
+  left_join(comorb_list_names, c('name' = 'Abbreviation')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({name})')) %>% 
+  count(fullname) %>% 
+  ggplot(aes(x = n, y = fct_reorder(fullname, n))) +
+  geom_col() +
+  labs(y = NULL)
+```
+
+### Comorbidity Score
+
+The following code will print the n patients with the highest Charlson comorbidity score.
+
+The Quan scoring system is also displayed along with the different between the two scoring systems.
+
+```{r}
+index_scores %>% 
+  select(contains('score')) %>% 
+  pivot_longer(everything()) %>% 
+  ggplot(aes(x = value)) +
+  geom_bar() +
+  facet_wrap(~ name, scales = 'free')
+```
+
+### Table1
+
+The below table displays the number of patients with each comorbidity
+```{r}
+table1 %>%
+  kable("html", escape = F) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Mapped Codes 
+
+The below table prints the top n number of mapped ICD Code/Comorbidity pairings
+
+*Note:* Some codes pair to more than one comorobidity. For example, CHF (Congestive Heart Failure) and MI (Myocardial Infarction), may have codes in common.
+
+```{r}
+head(mapped_codes_table, n = 10) %>%
+  kable("html", escape = F) %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+### Add Elixhauser Mapping!
