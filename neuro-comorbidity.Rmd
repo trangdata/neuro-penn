@@ -6,7 +6,7 @@ output: html_document
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(readxl)
-library(gghighlight)
+# library(gghighlight)
 
 theme_set(theme_bw() + 
             theme(legend.title = element_blank(),
@@ -26,7 +26,7 @@ neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>%
 
 ```{r message=FALSE, warning=FALSE}
 # neuro_icds_10 <- read.csv("neuro/neuro_icd.csv")
-colnames(neuro_icds_10)[3] <- "concept_code"
+# colnames(neuro_icds_10)[3] <- "concept_code"
 
 # Import Sites Phase2.1 LocalPatientSummary and LocalPatientObservations files
 # demo_raw <- read.csv("../nu4ce/Phase2.1/LocalPatientSummary.csv")
@@ -44,15 +44,18 @@ In this initial analysis, we will consider neuro patients as those with a neuro 
 
 The neuro_pts dataframe contains neuro patients regardless of whether or not they have a comorbidity/data prior to admission
 
+Only examining ICD-19 for now.
+
 *Note: We will need to discuss whether we want to include codes assigned on the day of admission as comorbidities.*
 ```{r}
-obs_raw <- obs_raw %>% filter(concept_type == "DIAG-ICD10")
+obs_raw <- obs_raw %>% 
+  filter(concept_type == "DIAG-ICD10")
 
 neuro_pts <- obs_raw %>% 
-  filter(days_since_admission >= 0) 
-neuro_pts <- merge(neuro_pts, neuro_icds_10, by = 'concept_code')
+  filter(days_since_admission >= 0) %>% 
+  right_join(neuro_icds_10, by = c('concept_code' = 'icd'))
 
-nrow(unique(data.frame(neuro_pts$patient_num)))
+length(unique(neuro_pts$patient_num))
 ```
 
 ### Neuro patients with prior icd codes
@@ -60,17 +63,16 @@ nrow(unique(data.frame(neuro_pts$patient_num)))
 Further subset the neuro patients to those who have data prior to their COVID-19 admission.
 ```{r}
 neuro_obs_prior <- obs_raw %>%
-  filter(days_since_admission < 0) %>%
-  filter(patient_num %in% neuro_pts$patient_num)
+  filter(days_since_admission < 0,
+         patient_num %in% neuro_pts$patient_num)
 
-nrow(unique(data.frame(neuro_obs_prior$patient_num)))  
+length(unique(neuro_obs_prior$patient_num))
 ```
 
 ## Map Comorbidities For the Full Patient and Neuro Cohorts
 
 ```{r}
 comorb <- map_charlson_codes(obs_raw)
-
 comorb_neuro <- map_charlson_codes(neuro_obs_prior)
 ```
 
@@ -86,11 +88,11 @@ The function creates 5 lists:
 
 5) Dataframe of the specific mapped codes arranged by frequency.
 ```{r}
-comorb_list_names <- comorb[[1]]
-icd_map <- comorb[[2]]
-index_scores <- comorb[[3]]
-table1 <- comorb[[4]]
-mapped_codes_table <- comorb[[5]]
+comorb_list_names <- comorb$comorb_list_names
+icd_map <- comorb$icd_map # obtain comorb. mapping from the full cohort
+index_scores <- comorb$index_scores
+table1 <- comorb$table1
+mapped_codes_table <- comorb$mapped_codes_table
 ```
 
 ## Patients with ICD Codes Prior to COVID-19 Admission 
@@ -98,28 +100,23 @@ The 2nd list of the returned output from the map_charlson_codes() function will 
 
 Here we can determine how many unique patients we have ICD codes for prior to admission
 ```{r}
-nrow(data.frame(comorb[[2]]$patient_num))
-
-nrow(data.frame(comorb_neuro[[2]]$patient_num))
+length(unique(icd_map$patient_num))
+length(unique(comorb_neuro$icd_map$patient_num))
 ```
 
 ## Combined Table 1
 
 The table will include side by side comparison of the comorbidity mappings fo the full patient cohort and neuro patient cohort for those who had prior ICD Codes
 ```{r}
-full_table1 <- comorb[[4]]
-neuro_comorbs_table1 <- comorb_neuro[[4]]
+combined_table1 <- comorb$table1 %>% 
+  `colnames<-`(c("Comorbidity", "full_cohort", "full_cohort_perc")) %>% 
+  left_join(
+    comorb_neuro$table1 %>% 
+      `colnames<-`(c("Comorbidity", "neuro_cohort", "neuro_cohort_perc")), 
+    by = "Comorbidity")
 
-combined_table1 <- left_join(full_table1, neuro_comorbs_table1, 
-                             by = "Comorbidity")
-colnames(combined_table1) <- c("Comorbidity", "Full_Cohort", "Full_Cohort_perc", "Neuro_Cohort", "Neuro_Cohort_perc")
-
-
-combined_table1$Full_Cohort_perc <- round(combined_table1$Full_Cohort/nrow(demo_raw)*100,2)
-
-combined_table1$Neuro_Cohort_perc <- round(combined_table1$Neuro_Cohort/nrow(demo_raw)*100,2)
-
-combined_table1 <- as.data.frame(combined_table1)
+combined_table1$full_cohort_perc <- round(combined_table1$full_cohort/nrow(demo_raw)*100,2)
+combined_table1$neuro_cohort_perc <- round(combined_table1$neuro_cohort/nrow(demo_raw)*100,2)
 
 write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 ```
@@ -128,51 +125,31 @@ write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 
 The below code will join the comorbidity mappings and the neurological code information, basic demographic and hospital mortality information into one dataframe.
 ```{r}
-# obtain comorb. mapping from the full cohort
-icd_map <- comorb[[2]]
-
 # Create a dataframe of unique neuro code information
 obs_neuro_unique <- neuro_pts %>%
-  distinct(patient_num, concept_code, Neurological.Disease.Category,
-         ICD.10.Description) 
+  distinct(patient_num, concept_code, `Neurological Disease Category`,
+         `ICD-10 Description`) 
 #nrow(unique(data.frame(obs_neuro_unique$patient_num)))
 
 # Create matrix with columns for each neurological disease
-neuro_matrix <- t(dcast(obs_neuro_unique, concept_code ~ patient_num, value.var="patient_num", length))
-neuro_matrix <- as.data.frame(neuro_matrix)
-neuro_matrix <- tibble::rownames_to_column(neuro_matrix, "patient_num")
-neuro_matrix <- data.frame(lapply(neuro_matrix, as.character), stringsAsFactors=FALSE)
-names(neuro_matrix) <- neuro_matrix[1,]
-neuro_matrix <- neuro_matrix[-1,]
-colnames(neuro_matrix)[1] <- "patient_num"
+neuro_matrix <- t(reshape2::dcast(obs_neuro_unique, concept_code ~ patient_num, value.var="patient_num", length))
 
-# merge neuro information to our comorbidity map
-neuro_comorbs <- left_join(icd_map, neuro_matrix, by = "patient_num")
-
-# add severity, death, and demographic information
-demo <- demo_raw %>% 
-  select(patient_num, severe, age_group, deceased)
-
-neuro_comorbs <- merge(neuro_comorbs, demo, by = "patient_num")
-neuro_comorbs$patient_num <- as.numeric(as.character(neuro_comorbs$patient_num))
-```
-
-### Add comorbidity index scores
-```{r}
-index_scores <- comorb[[3]]
+# Add comorbidity index scores
 scores <- index_scores %>% select(patient_num, charlson_score)
 
-neuro_comorbs <- merge(neuro_comorbs, scores, by = "patient_num")
-```
+neuro_comorbs <- obs_neuro_unique %>%
+  select(concept_code, patient_num) %>%
+  mutate(value = 1) %>% 
+  pivot_wider(names_from = 'concept_code', values_fill = 0) %>%
+  mutate(patient_num = as.character(patient_num)) %>% 
+  left_join(icd_map, by = "patient_num") %>% 
+  left_join(demo_raw %>% 
+              mutate(patient_num = as.character(patient_num)) %>% 
+              select(patient_num, severe, age_group, deceased), by = "patient_num") %>% 
+  left_join(scores, by = "patient_num") %>% 
+  mutate(neuro = patient_num %in% neuro_pt_ids$patient_num)
 
-### Indicate the Neuro patients
-```{r}
-neuro_pt_ids <- neuro_pts %>% 
-  distinct(patient_num) %>%
-  mutate(neuro = 1)
-
-neuro_comorbs <- left_join(neuro_comorbs, neuro_pt_ids, by = "patient_num")
-neuro_comorbs$neuro[is.na(neuro_comorbs$neuro)] <- 0
+# neuro_comorbs$patient_num <- as.numeric(as.character(neuro_comorbs$patient_num))
 ```
 
 ```{r}
@@ -183,21 +160,20 @@ head(neuro_comorbs %>% arrange(desc(patient_num)))
 
 ## Distribution of Charlson Comorbidity Scores
 ```{r}
-ggplot(neuro_comorbs) +
-  geom_histogram(bins = 15, aes(x = charlson_score, fill = "gray")) +
-  geom_histogram(bins = 15, data = subset(neuro_comorbs, neuro == "1"), aes(x = charlson_score, fill = "slateblue")) + 
-  scale_fill_manual(name = "Cohort",
-                    values=c("gray", "slateblue"),
-                    labels =c("Full Cohort", "Neuro Cohort")) + 
-  scale_x_discrete(limits = seq(1,15, 1)) + 
+neuro_comorbs %>% 
+ggplot() +
+  geom_histogram(bins = 15, aes(x = charlson_score, fill = neuro)) +
+  # geom_histogram(bins = 15, data = . %>% filter(neuro), 
+                 # aes(x = charlson_score, fill = "slateblue")) + 
+  # scale_fill_manual(name = "Cohort",
+  #                   values=c("gray", "slateblue"),
+  #                   labels =c("Full Cohort", "Neuro Cohort")) + 
+  # scale_x_discrete(limits = seq(1,15, 1)) + 
   theme_bw()
 
 ggplot(neuro_comorbs, aes(x = as.factor(neuro), y = charlson_score, fill = as.factor(neuro))) + 
   ylim(0,15) +
 geom_boxplot() + 
-  scale_fill_manual(name = "Neuro",
-                    values=c("gray", "slateblue"),
-                    labels =c("Non-Neuro", "Neuro")) + 
   theme_bw()
 
 
