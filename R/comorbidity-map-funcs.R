@@ -1,6 +1,5 @@
-library(dplyr)
 library(icd)
-library(purrr)
+library(tidyverse)
 library(tableone)
 
 
@@ -67,7 +66,6 @@ map_charlson_codes <- function(data) {
     arrange(as.numeric(patient_num))
 
     # replace abbreviations with full comorbidity name
-
   comorb_list_names <-
     map_df(
       names_charlson, ~ as.data.frame(.x),
@@ -130,41 +128,20 @@ map_charlson_codes <- function(data) {
 
   ## Identify the specific codes that mapped
 
-  # First we will add the comorbidity abbreviation adjacent to the mapped ICD Code
-  comorb_names = c(
-    "MI",
-    "CHF",
-    "PVD",
-    "Stroke",
-    "Dementia",
-    "Pulmonary",
-    "Rheumatic",
-    "PUD",
-    "LiverMild",
-    "DM",
-    "DMcx",
-    "Paralysis",
-    "Renal",
-    "Cancer",
-    "LiverSevere",
-    "Mets",
-    "HIV"
-  )
-
   # unlist the charlson mapping lists
   icd10_map <-
     map_df(icd10_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Comorbidity", "concept_code")) %>%
-    filter(!concept_code %in% comorb_names) %>%
+    filter(!concept_code %in% comorb_list_names$Comorbidity) %>%
     distinct() %>%
     # merge the mapping dataframe to the patient level ICD codes
     # this will return all comorbidities that mapped to our patient data
     inner_join(icd10, by = "concept_code")
 
-  icd9_code_map <-
+  icd9_map <-
     map_df(icd9_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Comorbidity", "concept_code")) %>%
-    filter(!concept_code %in% comorb_names) %>%
+    filter(!concept_code %in% comorb_list_names$Comorbidity) %>%
     distinct() %>%
     inner_join(icd9, by = "concept_code")
 
@@ -187,7 +164,7 @@ map_charlson_codes <- function(data) {
       distinct()
   }
 
-  # Bind both ICD 9 and 10 code tables togethe
+  # Bind both ICD 9 and 10 code tables together
   mapped_codes_table <-
     rbind(try(icd10_mapped_table, icd9_mapped_table), silent = TRUE)
 
