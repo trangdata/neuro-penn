@@ -20,10 +20,12 @@ map_charlson_codes <- function(data) {
   # icd package does not support simultaneous processing of both ICD code types
   # we will recombine after the initial processing
   icd10 <- data %>%
+    select(-c(days_since_admission, value)) %>%
     filter(concept_type == "DIAG-ICD10") %>%
     distinct()
 
   icd9 <- data %>%
+    select(-c(days_since_admission, value)) %>%
     filter(concept_type == "DIAG-ICD9") %>%
     distinct()
 
@@ -53,7 +55,6 @@ map_charlson_codes <- function(data) {
       return_binary = TRUE
     )
 
-
   # If multiple rows due to a patient having both ICD 9 and 10 codes, we will take the max of the column
   # This will allow us to capture the 1s indicating that the comorbidity is present
   # the try wrapper is important in cases there is not an instance of a specific comorbidity in the data - try silences errors
@@ -66,18 +67,9 @@ map_charlson_codes <- function(data) {
     arrange(as.numeric(patient_num))
 
     # replace abbreviations with full comorbidity name
-  comorb_list_names <-
-    map_df(
-      names_charlson, ~ as.data.frame(.x),
-      .id  =  "code"
-    ) %>%
-    full_join(
-      map_df(names_charlson_abbrev, ~ as.data.frame(.x),
-             .id="code"),
-      by = "code"
-    ) %>%
-    select(- code) %>%
-    `colnames<-`(c('Name', 'Comorbidity'))
+  comorb_list_names <- data.frame(
+    Name = do.call(rbind, names_charlson),
+    Comorbidity = do.call(rbind, names_charlson_abbrev))
 
   table1 <- icd_map %>%
     select(- patient_num) %>%
@@ -127,7 +119,6 @@ map_charlson_codes <- function(data) {
     )
 
   ## Identify the specific codes that mapped
-
   # unlist the charlson mapping lists
   icd10_map <-
     map_df(icd10_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
@@ -149,16 +140,16 @@ map_charlson_codes <- function(data) {
   # add if statements in order to handle sites that only have ICD 9 or 10 codes but not both
 
   if (nrow(icd10_map) > 0) {
-    icd10_mapped_table <- explain_table(icd10_map$concept_code) %>%
-      distinct() %>%
+    icd10_mapped_table <- unique(icd10_map$concept_code) %>%
+      explain_table() %>%
       left_join(icd10_map, ., by = c("concept_code" = "code")) %>%
       select(patient_num, concept_code, Comorbidity, long_desc) %>%
       distinct()
   }
 
   if (nrow(icd9_map) > 0) {
-    icd9_mapped_table <- explain_table(icd9_map$concept_code) %>%
-      distinct() %>%
+    icd9_mapped_table <- unique(icd9_map$concept_code) %>%
+      explain_table() %>%
       left_join(icd9_map, ., by = c("concept_code" = "code")) %>%
       select(patient_num, concept_code, Comorbidity, long_desc) %>%
       distinct()
@@ -166,15 +157,11 @@ map_charlson_codes <- function(data) {
 
   # Bind both ICD 9 and 10 code tables together
   mapped_codes_table <-
-    rbind(try(icd10_mapped_table, icd9_mapped_table), silent = TRUE)
-
-  # calculate how many patients had each unique Comorbidity/concept_code
-  mapped_codes_table <- mapped_codes_table %>%
-    add_count(concept_code, Comorbidity, long_desc, name = 'n_patients') %>%
-    group_by(long_desc, n_patients) %>%
-    arrange(desc(n_patients)) %>%
-    select(- patient_num) %>%
-    distinct()
+    icd10_mapped_table %>%
+    {if (nrow(icd9_map) > 0) bind_rows(icd9_mapped_table) else .} %>%
+    # calculate how many patients had each unique Comorbidity/concept_code
+    count(concept_code, Comorbidity, long_desc, name = 'n_patients') %>%
+    arrange(desc(n_patients))
 
   map_results <-
     list(
