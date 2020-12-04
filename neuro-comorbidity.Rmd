@@ -16,9 +16,15 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 
 ```{r message=FALSE}
 # labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
-clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
-demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
-obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
+# clin_raw <- read_csv(
+#   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
+#   col_types = list(patient_num = col_character()))
+demo_raw <- read_csv(
+  '../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv',
+  col_types = list(patient_num = col_character()))
+obs_raw <- read_csv(
+  '../thrombotic-penn/data/LocalPatientObservations-UPenn.csv',
+  col_types = list(patient_num = col_character()))
 loinc <- read_csv('public-data/penn-loinc-map.csv')
 neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
@@ -36,270 +42,252 @@ neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>%
 # source("R/Comorbidity_Mapping_Functions.r")
 ```
 
-# Data Pre-Processing
-
-## Neuro Cohort
+## Data pre-processing
 
 In this initial analysis, we will consider neuro patients as those with a neuro code on the day **of** or **anytime after** their first day of admission.
 
-The neuro_pts dataframe contains neuro patients regardless of whether or not they have a comorbidity/data prior to admission
-
-Only examining ICD-19 for now.
+Only examining ICD-10 for now.
 
 *Note: We will need to discuss whether we want to include codes assigned on the day of admission as comorbidities.*
+
+How do we define "neuro patients"?
+Patients with prior neurological conditions?
+Patients who developed neurological conditions after COVID-19 related admission
+
+(using after admission for now...)
+
+The `all_neuro_pats` vector contains neuro patients regardless of whether or not they have a comorbidity/data prior to admission.
+
 ```{r}
+n_patients <- nrow(demo_raw)
 obs_raw <- obs_raw %>% 
-  filter(concept_type == "DIAG-ICD10")
+  filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"))
 
-neuro_pts <- obs_raw %>% 
-  filter(days_since_admission >= 0) %>% 
-  right_join(neuro_icds_10, by = c('concept_code' = 'icd'))
+all_neuro_pats <- obs_raw %>% 
+  # filter(days_since_admission >= 0) %>% 
+  right_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  pull(patient_num) %>% 
+  unique()
 
-length(unique(neuro_pts$patient_num))
+length(all_neuro_pats)
 ```
 
-### Neuro patients with prior icd codes
+New variable `neuro_post` to indicate whether the patient developed neurological conditions after COVID-19 related admission.
 
-Further subset the neuro patients to those who have data prior to their COVID-19 admission.
+Q: What about on the day of?
+
 ```{r}
-neuro_obs_prior <- obs_raw %>%
-  filter(days_since_admission < 0,
-         patient_num %in% neuro_pts$patient_num)
+demo_processed <- obs_raw %>%
+  mutate(neuro_prior_icd = 
+           days_since_admission > 0 & 
+           patient_num %in% all_neuro_pats) %>% 
+  group_by(patient_num) %>% 
+  summarise(neuro_post = any(neuro_prior_icd),
+            .groups = 'drop') %>% 
+  left_join(demo_raw, by = 'patient_num')
 
-length(unique(neuro_obs_prior$patient_num))
+neuro_pt_prior <- demo_processed %>% 
+  filter(neuro_post) %>% 
+  pull(patient_num) %>% 
+  unique()
+
+length(neuro_pt_prior)
 ```
 
-## Map Comorbidities For the Full Patient and Neuro Cohorts
+## Map comorbidities
+
+List of comorbidity abbreviations for reference purposes,
+then run the `map_charlson_codes()` function:
 
 ```{r}
-comorb <- map_charlson_codes(obs_raw)
-comorb_neuro <- map_charlson_codes(neuro_obs_prior)
+comorb_names <- get_comorb_names()
+comorb <- map_charlson_codes(obs_raw, comorb_names)
 ```
 
-The function creates 5 lists: 
+`map_charlson_codes()` outputs a 2-element lists: 
 
-1) List of comorbidity abbreviations for reference purposes
+<!-- 1- Dataframe indicating which comorbidities were mapped -->
 
-2) Dataframe indicating which comorbidities were mapped
+1- Dataframe of the Charlson comorbidity index scores
 
-3) Dataframe of the charlson comorbidity index scores
+2- Dataframe of the specific mapped codes arranged by frequency.
+Comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.
 
-4) Table 1 to display the % of patients mapped to each comorbidity
-
-5) Dataframe of the specific mapped codes arranged by frequency.
 ```{r}
-comorb_list_names <- comorb$comorb_list_names
-icd_map <- comorb$icd_map # obtain comorb. mapping from the full cohort
 index_scores <- comorb$index_scores
-table1 <- comorb$table1
 mapped_codes_table <- comorb$mapped_codes_table
 ```
 
-## Patients with ICD Codes Prior to COVID-19 Admission 
-The 2nd list of the returned output from the map_charlson_codes() function will return the comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.
+## Table 1
 
-Here we can determine how many unique patients we have ICD codes for prior to admission
+to display the % of patients mapped to each comorbidity.
+The table will include side by side comparison of the comorbidity mappings fo the full patient cohort and neuro patient cohort for those who had prior neuro ICD Codes:
+
 ```{r}
-length(unique(icd_map$patient_num))
-length(unique(comorb_neuro$icd_map$patient_num))
-```
-
-## Combined Table 1
-
-The table will include side by side comparison of the comorbidity mappings fo the full patient cohort and neuro patient cohort for those who had prior ICD Codes
-```{r}
-combined_table1 <- comorb$table1 %>% 
-  `colnames<-`(c("Comorbidity", "full_cohort", "full_cohort_perc")) %>% 
-  left_join(
-    comorb_neuro$table1 %>% 
-      `colnames<-`(c("Comorbidity", "neuro_cohort", "neuro_cohort_perc")), 
-    by = "Comorbidity")
-
-combined_table1$full_cohort_perc <- round(combined_table1$full_cohort/nrow(demo_raw)*100,2)
-combined_table1$neuro_cohort_perc <- round(combined_table1$neuro_cohort/nrow(demo_raw)*100,2)
+combined_table1 <- get_table1(
+  index_scores %>% filter(patient_num %in% neuro_pt_prior)) %>% 
+  rename('n_neuro_pats' = n_patients) %>% 
+  left_join(get_table1(index_scores), .,
+            by = c("Comorbidity", "Abbreviation")) %>% 
+  mutate(prop_patients = n_patients/nrow(demo_raw),
+         prop_neuro_pats = n_neuro_pats/nrow(demo_raw))
 
 write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 ```
 
-## Combine Comorbidity and Neurological Disease Information
+
+```{r fig.width=10}
+mapped_codes_table %>% 
+  filter(n_patients > 5) %>% 
+  ggplot(aes(x = concept_code, y = Abbreviation, fill = n_patients)) +
+  geom_tile() +
+  scale_fill_gradient(low = 'white', trans = "sqrt") +
+  labs(x = NULL, y = NULL) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90))
+```
+
+Here we can determine how many unique patients we have ICD codes for prior to admission:
+```{r}
+length(unique(index_scores$patient_num))
+```
+
+## Charlson scores
+
+### Distribution
 
 The below code will join the comorbidity mappings and the neurological code information, basic demographic and hospital mortality information into one dataframe.
+
 ```{r}
-# Create a dataframe of unique neuro code information
-obs_neuro_unique <- neuro_pts %>%
-  distinct(patient_num, concept_code, `Neurological Disease Category`,
-         `ICD-10 Description`) 
-#nrow(unique(data.frame(obs_neuro_unique$patient_num)))
+scores_unique <- index_scores %>% 
+  left_join(demo_processed, by = 'patient_num')
 
-# Create matrix with columns for each neurological disease
-neuro_matrix <- t(reshape2::dcast(obs_neuro_unique, concept_code ~ patient_num, value.var="patient_num", length))
+scores_neuro <- obs_raw %>% 
+  # 1 patient can have different code but each only counted once
+  distinct(patient_num, concept_code) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  left_join(scores_unique, by = 'patient_num') %>% 
+  filter(!is.na(charlson_score)) %>% 
+  mutate(`Neurological Disease Category` =
+           as.factor(`Neurological Disease Category`) %>% 
+           fct_reorder(charlson_score),
+         concept_code = as.factor(concept_code) %>% 
+           fct_reorder(- charlson_score)) %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
+  {.}
 
-# Add comorbidity index scores
-scores <- index_scores %>% select(patient_num, charlson_score)
+scores_unique %>% 
+  ggplot(aes(x = charlson_score, fill = neuro_post)) +
+  geom_histogram(binwidth = 1) +
+  NULL
 
-neuro_comorbs <- obs_neuro_unique %>%
-  select(concept_code, patient_num) %>%
-  mutate(value = 1) %>% 
-  pivot_wider(names_from = 'concept_code', values_fill = 0) %>%
-  mutate(patient_num = as.character(patient_num)) %>% 
-  left_join(icd_map, by = "patient_num") %>% 
-  left_join(demo_raw %>% 
-              mutate(patient_num = as.character(patient_num)) %>% 
-              select(patient_num, severe, age_group, deceased), by = "patient_num") %>% 
-  left_join(scores, by = "patient_num") %>% 
-  mutate(neuro = patient_num %in% neuro_pt_ids$patient_num)
-
-# neuro_comorbs$patient_num <- as.numeric(as.character(neuro_comorbs$patient_num))
+scores_unique %>% 
+  ggplot(aes(x = neuro_post, y = charlson_score, fill = neuro_post)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  NULL
 ```
 
+### Median and IQR
+
 ```{r}
-head(neuro_comorbs %>% arrange(desc(patient_num)))
+aggregate(charlson_score ~ neuro_post, FUN = "median", scores_unique)
+aggregate(charlson_score ~ neuro_post, FUN = "summary", scores_unique)
 ```
 
-# Analysis
-
-## Distribution of Charlson Comorbidity Scores
+### Correlated variables
 ```{r}
-neuro_comorbs %>% 
-ggplot() +
-  geom_histogram(bins = 15, aes(x = charlson_score, fill = neuro)) +
-  # geom_histogram(bins = 15, data = . %>% filter(neuro), 
-                 # aes(x = charlson_score, fill = "slateblue")) + 
-  # scale_fill_manual(name = "Cohort",
-  #                   values=c("gray", "slateblue"),
-  #                   labels =c("Full Cohort", "Neuro Cohort")) + 
-  # scale_x_discrete(limits = seq(1,15, 1)) + 
-  theme_bw()
-
-ggplot(neuro_comorbs, aes(x = as.factor(neuro), y = charlson_score, fill = as.factor(neuro))) + 
-  ylim(0,15) +
-geom_boxplot() + 
-  theme_bw()
-
-
-#nrow(data.frame(unique(neuro_comorbs$patient_num)))
+lm(charlson_score ~ neuro_post + severe + deceased, # + sex + age_group + race
+   data = scores_unique) %>% 
+  summary()
 ```
 
-## Median and IQR of Charlson Scores
+### By neuro diagnosis
+
+Here we will use the `obs_processed` dataframe in contrast to our `scores_unique` dataframe as the former is in long format
 ```{r}
-aggregate(charlson_score ~ neuro, FUN = "median", neuro_comorbs)
-aggregate(charlson_score ~ neuro, FUN = "summary", neuro_comorbs)
+# scores$patient_num <- as.numeric(as.character(scores$patient_num))
+scores_neuro %>% 
+  filter(neuro_post, 
+         !is.na(charlson_score), 
+         !is.na(`Neurological Disease Category`)) %>% 
+  ggplot(aes(y = concept_code, x = charlson_score, fill = concept_code)) + 
+  facet_grid(rows = vars(`Neurological Disease Category`),
+             scales = 'free', space = 'free') +
+  geom_boxplot(alpha = 0.6) + 
+  scale_fill_viridis_d(guide = FALSE, direction = -1) +
+  labs(x = 'Charlson score', y = NULL) +
+  NULL +
+  theme(panel.grid = element_blank(),
+        legend.title = element_text(),
+        strip.text.y = element_text(angle = 0),
+        panel.spacing.x = unit(10, "points"),
+        panel.spacing.y = unit(0, "points"))
 ```
 
-## Wilcoxon Test 
+### By grouped neuro diagnosis and severity
+
+How would we interpret this figure?
+
 ```{r}
-neuro_group0 <- neuro_comorbs %>% filter(neuro == 1)
-non_neuro_group0 <- neuro_comorbs %>% filter(neuro == 0)
-
-wilcox.test(neuro_group0$charlson_score, non_neuro_group0$charlson_score)
-```
-
-
-## Charlson Scores by Neuro Diagnosis
-
-Here we will use the obs_neuro_unique dataframe in contrast to our neuro_comorbs dataframe as the former is in long format
-```{r}
-scores$patient_num <- as.numeric(as.character(scores$patient_num))
-scores_neuro <- left_join(obs_neuro_unique, scores, by = "patient_num")
-scores_neuro <- left_join(scores_neuro, demo, by = "patient_num")
-
-p1 <- ggplot(scores_neuro, aes(x = reorder(concept_code, -charlson_score, na.rm = TRUE), y = charlson_score, fill = Neurological.Disease.Category)) + 
+scores_neuro %>% 
+  ggplot(aes(
+    y = reorder(`Neurological Disease Category`, - charlson_score, na.rm = TRUE), 
+    x = charlson_score, fill = severe)) + 
   geom_boxplot() + 
-  xlab("Neuro ICD Code") + 
-  theme_bw()
-
-p1 + theme(axis.text.x = element_text(angle = 60, vjust = 0.5))
+  labs(x = 'Charlson score', y = NULL) +
+  scale_fill_manual(name = NULL, 
+                    values = c("gray", "darkorange"),
+                    guide = guide_legend(reverse = TRUE)) +
+  NULL
 ```
 
-## Charlson Scores by Severity
+### Neuro vs non-neuro patients
+
 ```{r}
-p2 <- ggplot(scores_neuro, aes(x = reorder(Neurological.Disease.Category, -charlson_score, na.rm = TRUE), y = charlson_score, fill = as.factor(severe))) + 
+comorb_long <- scores_unique %>% 
+  select(patient_num, neuro_post, charlson_score, MI:HIV) %>% 
+  pivot_longer(MI:HIV) %>% 
+  filter(value == 1)
+
+comorb_long %>% 
+  ggplot(aes(
+    y = reorder(name, - charlson_score, na.rm = TRUE), 
+    x = charlson_score, fill = neuro_post)) + 
   geom_boxplot() + 
-  xlab("Neurological Disease Category") +
-  scale_fill_manual(name = "Severe",
-                    values=c("gray", "slateblue"),
-                    labels =c("Non-Severe", "Severe")) + 
-  theme_bw()
-
-p2 + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+  labs(x = 'Charlson score', y = NULL) +
+  scale_fill_manual(values = c("gray", "slateblue"),
+                    name = c('Non-neuro', 'Neuro'),
+                    guide = guide_legend(reverse = TRUE)) +
+  NULL
 ```
 
-## Comorbidities Among Neuro vs Non-Neuro Patients
+## Neuro condition vs comorbidity type
+
 ```{r}
-comorb_long <- neuro_comorbs[, 1:18]
-comorb_long <- gather(comorb_long, comorbidity, comorbidity_yes, MI:HIV, factor_key=TRUE)
-
-# add neuro identifier and charlson_score
-comorb_long <- left_join(comorb_long, neuro_pt_ids, by = "patient_num")
-comorb_long <- left_join(comorb_long, scores, by = "patient_num")
-comorb_long$neuro[is.na(comorb_long$neuro)] <- 0
-
-# how many neuro patients have a comorbidity
-comorb_long_neuro <- comorb_long %>% 
-  group_by(patient_num) %>% 
-  filter(neuro == 1) %>% 
-  filter(comorbidity_yes == 1) %>% 
-  slice(1L)
-nrow(comorb_long_neuro)
-
-p3 <- ggplot(comorb_long %>% filter(!comorbidity_yes == 0), aes(x = reorder(comorbidity, -charlson_score, na.rm = TRUE), y = charlson_score, fill = as.factor(neuro))) + 
-  geom_boxplot() + 
-  scale_fill_manual(name = "Neuro",
-                    values=c("gray", "slateblue"),
-                    labels =c("Non-Neuro", "Neuro")) + 
-  xlab("Charlson Comorbidity") + 
-  theme_bw()
-
-p3 + theme(axis.text.x = element_text(angle = 60, hjust = 1))
-```
-
-## Wilcoxon Test comparing comorbidities of non-neuro vs neuro patients
-```{r}
-comorb_wilcox_func <- function(df, comorb) {
-  
-  df <- df %>% 
-    filter(comorbidity == comorb & comorbidity_yes == 1)
-  
-  neuro <- df %>% filter(neuro == 1)
-  
-  non_neuro <- df %>% filter(neuro == 0)
-  
-  results = wilcox.test(neuro$charlson_score,
-                        non_neuro$charlson_score)$p.value
-  
+comorb_wilcox_func <- function(comorb, df = comorb_long) {
+  df <- df %>% filter(name == comorb)
+  neuro <- df %>% filter(neuro_post == 1)
+  non_neuro <- df %>% filter(neuro_post == 0)
+  wilcox.test(neuro$charlson_score, non_neuro$charlson_score)$p.value
 }
 
-comorbs <- c("MI", "CHF", "PVD", "Stroke", "Dementia", "Pulmonary",
-             "Rheumatic", "PUD", "LiverMild", "DM", "DMcx", "Paralysis", 
-             "Renal", "Cancer", "LiverSevere", "Mets", "HIV")
+comorbs <- comorb_names$Abbreviation
 
+wilcox_res <- comorbs %>%
+  sapply(comorb_wilcox_func, df = comorb_long) %>%
+  data.frame(p_value = .) %>%
+  arrange(p_value)
 
-wilcox_list = list()
+wilcox_res
 
+median_list <- list()
 for (i in comorbs) {
-    result <- comorb_wilcox_func(comorb_long, i)
-    wilcox_list[[i]] <- result # add it to your list
-}
-result_list = as.data.frame(do.call(rbind, wilcox_list))
-colnames(result_list) <- "p.value"
-
-# organize by significance
-result_list <- result_list %>% arrange(p.value)
-print(result_list)
-
-median_list = list()
-
-for (i in comorbs) {
-  
-    df <- comorb_long %>% 
-      filter(comorbidity_yes == 1) %>% 
-      filter(comorbidity == i)
-    
-    result <- aggregate(charlson_score ~ neuro, FUN = "summary", df)
-    result <- as.data.frame(result)
-    
-    median_list[[i]] <- result 
-    
+  df <- comorb_long %>% filter(name == i)
+  median_list[[i]] <- 
+    aggregate(charlson_score ~ neuro_post, FUN = "summary", df) %>% 
+    as.data.frame()
 }
 median_list = do.call(rbind, median_list)
 list_names <- row.names(median_list)
@@ -309,43 +297,15 @@ m2 <- median_list[[2]]
 median_list <- cbind(m1, m2)
 row.names(median_list) <- list_names
 colnames(median_list)[1] <- "Neuro"
+median_list
 ```
 
-## Outcomes
+Q: Do we need `median_list`?
 
-```{r}
-ggplot(neuro_comorbs, aes(x = as.factor(deceased), y = charlson_score, fill = as.factor(neuro))) + 
-  ylim(0,15) +
-geom_boxplot() + 
-  xlab("Deceased") + 
-  scale_fill_manual(name = "Neuro",
-                    values=c("gray", "slateblue"),
-                    labels =c("Non-Neuro", "Neuro")) + 
-  theme_bw()
+## Additional Notes:
 
-aggregate(charlson_score ~ neuro + deceased, FUN = "summary", neuro_comorbs)
-```
-
-## Neuro Patients and Outcomes
-```{r}
-neuro_group <- neuro_comorbs %>% filter(neuro == 1)
-non_neuro_group <- neuro_comorbs %>% filter(neuro == 0)
-
-ggplot(neuro_comorbs, aes(x = as.factor(deceased), y = charlson_score, fill = as.factor(neuro))) + 
-  ylim(0,15) +
-geom_boxplot() + 
-  xlab("Deceased") + 
-  scale_fill_manual(name = "Neuro",
-                    values=c("gray", "slateblue"),
-                    labels =c("Non-Neuro", "Neuro")) + 
-  theme_bw()
-
-aggregate(charlson_score ~ neuro + deceased, FUN = "summary", neuro_comorbs)
-```
-
-### Additional Notes:
-
-Neuro Codes: G04, G45, G46, I60, 161, 162, and 167 will map to comorbidities. An important consideration is that we don't want to confuse comorbidities for complications of hospital stay/COVID-19
+Neuro Codes: G04, G45, G46, I60, 161, 162, and 167 will map to comorbidities.
+An important consideration is that we don't want to confuse comorbidities for complications of hospital stay/COVID-19
 
 The below will assess how many on these neuro comorbidity codes occurred on the day of admission and how many neuro codes in general are on the day of admission.
 
@@ -360,6 +320,5 @@ neuro_comorb_on_admission <- obs_raw %>%
   filter(concept_code %in% neuro_comorb_codes) %>%
   select(patient_num, concept_code) %>%
   distinct()
-nrow(unique(data.frame(neuro_comorb_on_admission)))
-nrow(unique(data.frame(neuro_comorb_on_admission$patient_num)))
+unique(neuro_comorb_on_admission$concept_code)
 ```
