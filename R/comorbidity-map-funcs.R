@@ -2,15 +2,11 @@ library(icd)
 library(tidyverse)
 library(tableone)
 
-
-first_3 <- function(x) {
-  # retain first 3 characters of the ICD code
-  substr(x, 1, 3) %>% unique()
-}
-
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
 # data = obs_raw
-map_charlson_codes <- function(data) {
+# comorb_names <- get_comorb_names()
+
+map_charlson_codes <- function(data, comorb_names) {
   data <- data %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
            # filter for diagnoses prior to admission
@@ -66,23 +62,6 @@ map_charlson_codes <- function(data) {
     ) %>%
     arrange(as.numeric(patient_num))
 
-    # replace abbreviations with full comorbidity name
-  comorb_list_names <- data.frame(
-    Name = do.call(rbind, names_charlson),
-    Comorbidity = do.call(rbind, names_charlson_abbrev))
-
-  table1 <- icd_map %>%
-    select(- patient_num) %>%
-    pivot_longer(everything(), names_to = 'Comorbidity') %>%
-    group_by(Comorbidity) %>%
-    summarise(Patients = sum(value), .groups = 'drop') %>%
-    left_join(comorb_list_names, by = "Comorbidity") %>%
-    select(Comorbidity = Name, Patients) %>%
-    mutate(percent = round(Patients / nrow(icd_map) * 100, 2)) %>%
-    arrange(
-      desc(Patients)
-    )
-
   ## Calculate Index Scores
   charlson_score <- charlson_from_comorbid(
     icd_map,
@@ -118,12 +97,12 @@ map_charlson_codes <- function(data) {
       everything()
     )
 
-  ## Identify the specific codes that mapped
+  # Identify the specific codes that mapped
   # unlist the charlson mapping lists
   icd10_map <-
     map_df(icd10_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
-    `colnames<-`(c("Comorbidity", "concept_code")) %>%
-    filter(!concept_code %in% comorb_list_names$Comorbidity) %>%
+    `colnames<-`(c("Abbreviation", "concept_code")) %>%
+    filter(!concept_code %in% comorb_names$Abbreviation) %>%
     distinct() %>%
     # merge the mapping dataframe to the patient level ICD codes
     # this will return all comorbidities that mapped to our patient data
@@ -131,19 +110,18 @@ map_charlson_codes <- function(data) {
 
   icd9_map <-
     map_df(icd9_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
-    `colnames<-`(c("Comorbidity", "concept_code")) %>%
-    filter(!concept_code %in% comorb_list_names$Comorbidity) %>%
+    `colnames<-`(c("Abbreviation", "concept_code")) %>%
+    filter(!concept_code %in% comorb_names$Abbreviation) %>%
     distinct() %>%
     inner_join(icd9, by = "concept_code")
 
   # explain_codes will add additional information regarding the code name
   # add if statements in order to handle sites that only have ICD 9 or 10 codes but not both
-
   if (nrow(icd10_map) > 0) {
     icd10_mapped_table <- unique(icd10_map$concept_code) %>%
       explain_table() %>%
       left_join(icd10_map, ., by = c("concept_code" = "code")) %>%
-      select(patient_num, concept_code, Comorbidity, long_desc) %>%
+      select(patient_num, concept_code, Abbreviation, long_desc) %>%
       distinct()
   }
 
@@ -151,7 +129,7 @@ map_charlson_codes <- function(data) {
     icd9_mapped_table <- unique(icd9_map$concept_code) %>%
       explain_table() %>%
       left_join(icd9_map, ., by = c("concept_code" = "code")) %>%
-      select(patient_num, concept_code, Comorbidity, long_desc) %>%
+      select(patient_num, concept_code, Abbreviation, long_desc) %>%
       distinct()
   }
 
@@ -159,19 +137,38 @@ map_charlson_codes <- function(data) {
   mapped_codes_table <-
     icd10_mapped_table %>%
     {if (nrow(icd9_map) > 0) bind_rows(icd9_mapped_table) else .} %>%
-    # calculate how many patients had each unique Comorbidity/concept_code
-    count(concept_code, Comorbidity, long_desc, name = 'n_patients') %>%
+    # calculate how many patients had each unique comorbidity/concept_code
+    count(concept_code, Abbreviation, long_desc, name = 'n_patients') %>%
     arrange(desc(n_patients))
 
   map_results <-
     list(
-      comorb_list_names = comorb_list_names,
-      icd_map = icd_map,
       index_scores = index_scores,
-      table1 = table1,
       mapped_codes_table = mapped_codes_table
     )
 
   map_results
 
+}
+
+get_table1 <- function(
+  df, comorbidities = comorb_names$Abbreviation
+){
+  df %>%
+    select(all_of(comorbidities)) %>%
+    colSums() %>%
+    data.frame(n_patients = .) %>%
+    rownames_to_column("Abbreviation") %>%
+    right_join(comorb_names, ., by = "Abbreviation")
+}
+
+get_comorb_names <- function(){
+  data.frame(
+    Comorbidity = do.call(rbind, names_charlson),
+    Abbreviation = do.call(rbind, names_charlson_abbrev))
+}
+
+first_3 <- function(x) {
+  # retain first 3 characters of the ICD code
+  substr(x, 1, 3) %>% unique()
 }
