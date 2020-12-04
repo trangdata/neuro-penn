@@ -1,5 +1,5 @@
 ---
-title: "all-comorbidity"
+title: "Comorbidity analysis, All"
 output: html_document
 ---
 
@@ -39,8 +39,7 @@ If a site has ICD9 or ICD 10 Codes, the mapping must be performed separately and
 
 ```{r}
 # sourced from R/Comorbidity_Mapping_Functions.R
-comorb <- map_charlson_codes(obs_raw) 
-
+comorb <- map_charlson_codes(obs_raw)
 comorb_list_names <- comorb$comorb_list_names
 icd_map <- comorb$icd_map %>% ungroup()
 index_scores <- comorb$index_scores %>% ungroup()
@@ -67,15 +66,26 @@ icd_map %>%
   cor() %>% 
   heatmap()
 
-icd_map %>% 
+icd_plot <- icd_map %>% 
   select(- patient_num) %>% 
   pivot_longer(everything()) %>% 
   filter(value != 0) %>% 
   left_join(comorb_list_names, c('name' = 'Abbreviation')) %>% 
-  mutate(fullname = glue::glue('{Comorbidity} ({name})')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({name})'))
+
+icd_plot %>% 
   count(fullname) %>% 
   ggplot(aes(x = n, y = fct_reorder(fullname, n))) +
   geom_col() +
+  labs(y = NULL)
+
+index_scores %>% 
+  pivot_longer(MI:HIV) %>% 
+  filter(value != 0) %>% 
+  left_join(comorb_list_names, c('name' = 'Abbreviation')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({name})')) %>% 
+  ggplot(aes(x = charlson_score, y = fct_reorder(fullname, charlson_score))) +
+  geom_boxplot() +
   labs(y = NULL)
 ```
 
