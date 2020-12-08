@@ -6,11 +6,11 @@ library(tableone)
 # data = obs_raw
 # comorb_names <- get_comorb_names()
 
-map_charlson_codes <- function(data, comorb_names) {
+map_charlson_codes <- function(data, comorb_names, num_days_since_admission) {
   data <- data %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
            # filter for diagnoses prior to admission
-           days_since_admission < 0)
+           days_since_admission <= num_days_since_admission)
 
   # Create separate data frames for ICD9 and 10 Codes
   # icd package does not support simultaneous processing of both ICD code types
