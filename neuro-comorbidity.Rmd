@@ -6,6 +6,7 @@ output: html_document
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)
 library(readxl)
+library(DT)
 # library(gghighlight)
 
 theme_set(theme_bw() + 
@@ -14,7 +15,12 @@ theme_set(theme_bw() +
 for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
-```{r eval=FALSE, message=FALSE, include=FALSE}
+```{r nwu}
+# demo_raw <- read.csv("../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv")
+# obs_raw <- read.csv("../../Phase2.1/LocalPatientObservations.csv")
+```
+
+```{r message=FALSE}
 # labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 # clin_raw <- read_csv(
 #   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
@@ -25,16 +31,13 @@ demo_raw <- read_csv(
 obs_raw <- read_csv(
   '../thrombotic-penn/data/LocalPatientObservations-UPenn.csv',
   col_types = list(patient_num = col_character()))
-loinc <- read_csv('public-data/penn-loinc-map.csv')
-neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
-  rename('icd' = `ICD-10`)
 ```
 
 ```{r message=FALSE, warning=FALSE}
+loinc <- read_csv('public-data/penn-loinc-map.csv')
 neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
-demo_raw <- read.csv("../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv")
-obs_raw <- read.csv("../../Phase2.1/LocalPatientObservations.csv")
+
 ```
 
 ## Data pre-processing
@@ -81,12 +84,12 @@ demo_processed <- obs_raw %>%
             .groups = 'drop') %>% 
   left_join(demo_raw, by = 'patient_num')
 
-neuro_pt_prior <- demo_processed %>% 
+neuro_pt_post <- demo_processed %>% 
   filter(neuro_post) %>% 
   pull(patient_num) %>% 
   unique()
 
-length(neuro_pt_prior)
+length(neuro_pt_post)
 ```
 
 ## Map comorbidities
@@ -126,14 +129,15 @@ The table will include side by side comparison of the comorbidity mappings fo th
 comorb_names$Abbreviation <- as.character(comorb_names$Abbreviation)
 
 combined_table1 <- get_table1(
-  index_scores %>% filter(patient_num %in% neuro_pt_prior)) %>% 
+  index_scores %>% filter(patient_num %in% neuro_pt_post)) %>% 
   rename('n_neuro_pats' = n_patients) %>% 
   left_join(get_table1(index_scores), .,
             by = c("Comorbidity", "Abbreviation")) %>% 
   mutate(prop_patients = n_patients/nrow(demo_raw),
          prop_neuro_pats = n_neuro_pats/nrow(demo_raw))
 
-combined_table1
+datatable(combined_table1) %>% 
+  formatPercentage(c('prop_patients', 'prop_neuro_pats'))
 
 write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 ```
@@ -155,6 +159,39 @@ Here we can determine how many unique patients we have ICD codes for prior to ad
 length(unique(index_scores$patient_num))
 ```
 
+## Comorbidity matrix
+
+The following code will print the comorbidity matrix with a subset of patients (n)
+```{r}
+index_scores %>% 
+  select(MI:HIV) %>% 
+  cor() %>% 
+  heatmap()
+
+icd_plot <- index_scores %>% 
+  select(MI:HIV) %>% 
+  pivot_longer(everything()) %>% 
+  filter(value != 0) %>% 
+  left_join(comorb_names, c('name' = 'Abbreviation')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({name})'))
+
+icd_plot %>% 
+  count(fullname) %>% 
+  ggplot(aes(x = n, y = fct_reorder(fullname, n))) +
+  geom_col() +
+  labs(y = NULL)
+
+index_scores %>% 
+  pivot_longer(MI:HIV) %>% 
+  filter(value != 0) %>% 
+  left_join(comorb_names, c('name' = 'Abbreviation')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({name})')) %>% 
+  ggplot(aes(x = charlson_score, y = fct_reorder(fullname, charlson_score))) +
+  geom_boxplot() +
+  labs(y = NULL)
+```
+
+
 ## Charlson scores
 
 ### Distribution
@@ -166,7 +203,9 @@ demo_processed$patient_num <- as.character(demo_processed$patient_num)
 obs_raw$patient_num <- as.character(obs_raw$patient_num)
 
 scores_unique <- index_scores %>% 
-  left_join(demo_processed, by = 'patient_num')
+  left_join(demo_processed, by = 'patient_num') %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0'))
 
 scores_neuro <- obs_raw %>% 
   # 1 patient can have different code but each only counted once
@@ -179,8 +218,6 @@ scores_neuro <- obs_raw %>%
            fct_reorder(charlson_score),
          concept_code = as.factor(concept_code) %>% 
            fct_reorder(- charlson_score)) %>% 
-  mutate(severe = as.factor(severe) %>% 
-           fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
   {.}
 
 scores_unique %>% 
@@ -201,6 +238,18 @@ scores_unique %>%
 aggregate(charlson_score ~ neuro_post, FUN = "median", scores_unique)
 aggregate(charlson_score ~ neuro_post, FUN = "summary", scores_unique)
 ```
+
+
+### Compared to Quan scoring system
+```{r}
+scores_unique %>% 
+  ggplot(aes(x = quan_score, y = charlson_score)) +
+  geom_jitter(alpha = 0.2, size = 0.3) +
+  coord_fixed() +
+  geom_abline(slope = 1, color = 'lightgrey', linetype = 'dashed')
+cor(scores_unique$charlson_score, scores_unique$quan_score)
+```
+
 
 ### Correlated variables
 ```{r}
@@ -258,13 +307,14 @@ comorb_long <- scores_unique %>%
   filter(value == 1)
 
 comorb_long %>% 
+  mutate(neuro_post = as.factor(neuro_post) %>% 
+           fct_recode('Neuro' = 'TRUE', 'Non-neuro' = 'FALSE')) %>% 
   ggplot(aes(
     y = reorder(name, - charlson_score, na.rm = TRUE), 
     x = charlson_score, fill = neuro_post)) + 
   geom_boxplot() + 
   labs(x = 'Charlson score', y = NULL) +
   scale_fill_manual(values = c("gray", "slateblue"),
-                    name = c('Non-neuro', 'Neuro'),
                     guide = guide_legend(reverse = TRUE)) +
   NULL
 ```
@@ -329,7 +379,7 @@ neuro_comorb_on_admission <- obs_raw %>%
 unique(neuro_comorb_on_admission$concept_code)
 ```
 
-## Evaluating Timeframe of Comorbidities
+## Comorbidities timeframe
 
 Qs: When are these comorbidities getting mapped 
 ```{r}
@@ -350,7 +400,7 @@ index_scores_dayOf <- comorb_dayOf$index_scores
 mapped_codes_dayOf <- comorb_dayOf$mapped_codes_table
 
 dayOf_table1 <- get_table1(
-  index_scores_dayOf %>% filter(patient_num %in% neuro_pt_prior)) %>% 
+  index_scores_dayOf %>% filter(patient_num %in% neuro_pt_post)) %>% 
   rename('n_neuro_pats' = n_patients) %>% 
   left_join(get_table1(index_scores_dayOf), .,
             by = c("Comorbidity", "Abbreviation"))
@@ -363,7 +413,7 @@ for (i in comorb_names$Abbreviation) {
 } 
 ```
 
-# First occurence of a comorbidity 
+## First occurence of a comorbidity 
 ```{r}
 obs_first <- obs_raw %>% 
   group_by(patient_num) %>% 
