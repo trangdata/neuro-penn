@@ -14,7 +14,7 @@ theme_set(theme_bw() +
 for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
-```{r message=FALSE}
+```{r eval=FALSE, message=FALSE, include=FALSE}
 # labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 # clin_raw <- read_csv(
 #   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
@@ -31,15 +31,10 @@ neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>%
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# neuro_icds_10 <- read.csv("neuro/neuro_icd.csv")
-# colnames(neuro_icds_10)[3] <- "concept_code"
-
-# Import Sites Phase2.1 LocalPatientSummary and LocalPatientObservations files
-# demo_raw <- read.csv("../nu4ce/Phase2.1/LocalPatientSummary.csv")
-# obs_raw <- read.csv("../nu4ce/Phase2.1/LocalPatientobs_rawervations.csv")
-
-# Import our comorbidity mapping function
-# source("R/Comorbidity_Mapping_Functions.r")
+neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
+  rename('icd' = `ICD-10`)
+demo_raw <- read.csv("../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv")
+obs_raw <- read.csv("../../Phase2.1/LocalPatientObservations.csv")
 ```
 
 ## Data pre-processing
@@ -101,7 +96,11 @@ then run the `map_charlson_codes()` function:
 
 ```{r}
 comorb_names <- get_comorb_names()
-comorb <- map_charlson_codes(obs_raw, comorb_names)
+
+# where num_day_since_admission = -1 indicates that we only consider codes prior to the first COVID admission as comorbidities
+comorb <- map_charlson_codes(data = obs_raw, 
+                             comorb_names = comorb_names, 
+                             num_days_since_admission = -1)
 ```
 
 `map_charlson_codes()` outputs a 2-element lists: 
@@ -124,6 +123,8 @@ to display the % of patients mapped to each comorbidity.
 The table will include side by side comparison of the comorbidity mappings fo the full patient cohort and neuro patient cohort for those who had prior neuro ICD Codes:
 
 ```{r}
+comorb_names$Abbreviation <- as.character(comorb_names$Abbreviation)
+
 combined_table1 <- get_table1(
   index_scores %>% filter(patient_num %in% neuro_pt_prior)) %>% 
   rename('n_neuro_pats' = n_patients) %>% 
@@ -131,6 +132,8 @@ combined_table1 <- get_table1(
             by = c("Comorbidity", "Abbreviation")) %>% 
   mutate(prop_patients = n_patients/nrow(demo_raw),
          prop_neuro_pats = n_neuro_pats/nrow(demo_raw))
+
+combined_table1
 
 write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 ```
@@ -159,6 +162,9 @@ length(unique(index_scores$patient_num))
 The below code will join the comorbidity mappings and the neurological code information, basic demographic and hospital mortality information into one dataframe.
 
 ```{r}
+demo_processed$patient_num <- as.character(demo_processed$patient_num)
+obs_raw$patient_num <- as.character(obs_raw$patient_num)
+
 scores_unique <- index_scores %>% 
   left_join(demo_processed, by = 'patient_num')
 
@@ -198,7 +204,7 @@ aggregate(charlson_score ~ neuro_post, FUN = "summary", scores_unique)
 
 ### Correlated variables
 ```{r}
-lm(charlson_score ~ neuro_post + severe + deceased, # + sex + age_group + race
+lm(charlson_score ~ neuro_post + severe + deceased, # + sex + age_group + race,
    data = scores_unique) %>% 
   summary()
 ```
@@ -278,6 +284,7 @@ comorbs <- comorb_names$Abbreviation
 wilcox_res <- comorbs %>%
   sapply(comorb_wilcox_func, df = comorb_long) %>%
   data.frame(p_value = .) %>%
+  cbind(comorbs) %>%
   arrange(p_value)
 
 wilcox_res
@@ -311,9 +318,8 @@ The below will assess how many on these neuro comorbidity codes occurred on the 
 
 *Note: This is just for data exploration right now, we are going to initially just assume that any codes prior to the COVID-19 admission are comorbidities*
 ```{r}
-neuro_comorb_codes <- c("G04", "G45", "G46", 
-                        "I60", "161", "162", 
-                        "167")
+neuro_comorb_codes <- c("G04", "G45", "G46",  # paralysis codes
+                        "I60", "161", "162", "167") # stroke codes
 
 neuro_comorb_on_admission <- obs_raw %>%
   filter(days_since_admission == 0) %>%
@@ -322,3 +328,57 @@ neuro_comorb_on_admission <- obs_raw %>%
   distinct()
 unique(neuro_comorb_on_admission$concept_code)
 ```
+
+## Evaluating Timeframe of Comorbidities
+
+Qs: When are these comorbidities getting mapped 
+```{r}
+# considers only codes at least -15 days prior to admission as comorbidities
+comorb15 <- map_charlson_codes(obs_raw, comorb_names, -15) 
+
+# considers code day of admission as comorbidities
+comorb0 <- map_charlson_codes(obs_raw, comorb_names, 0) 
+
+# map only day of admission
+obs_raw0 <- obs_raw %>% filter(days_since_admission == 2)
+comorb_dayOf <- map_charlson_codes(obs_raw0, comorb_names, 2) 
+```
+
+## Comorbidities Overtime
+```{r}
+index_scores_dayOf <- comorb_dayOf$index_scores
+mapped_codes_dayOf <- comorb_dayOf$mapped_codes_table
+
+dayOf_table1 <- get_table1(
+  index_scores_dayOf %>% filter(patient_num %in% neuro_pt_prior)) %>% 
+  rename('n_neuro_pats' = n_patients) %>% 
+  left_join(get_table1(index_scores_dayOf), .,
+            by = c("Comorbidity", "Abbreviation"))
+```
+
+```{r}
+plot_list <- list()
+for (i in comorb_names$Abbreviation) {
+  plot_list[[i]] <- comorb_time(obs_raw, mapped_codes_table, i, -365)
+} 
+```
+
+# First occurence of a comorbidity 
+```{r}
+obs_first <- obs_raw %>% 
+  group_by(patient_num) %>% 
+  merge(mapped_codes_table, by = "concept_code") %>%
+  arrange(days_since_admission) %>%
+  group_by(patient_num, Abbreviation) %>%
+  filter(days_since_admission == min(days_since_admission)) %>%
+  slice(1L) %>%
+  ungroup() %>%
+  select(-Abbreviation) # to be able to re-run the plot function
+
+plot_list <- list()
+for (i in comorb_names$Abbreviation) {
+  plot_list[[i]] <- comorb_time(obs_first, mapped_codes_table, i, -365)
+} 
+```
+
+
