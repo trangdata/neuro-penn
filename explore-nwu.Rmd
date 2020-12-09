@@ -1,0 +1,253 @@
+---
+title: "Neuroanalysis"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(gghighlight)
+library(epitools)
+
+theme_set(theme_bw() + 
+            theme(legend.title = element_blank(),
+                  panel.grid.minor = element_blank()))
+for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
+```
+
+# NWU Data
+```{r}
+clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
+demo_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv')
+obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
+labs_raw <- obs_raw %>% filter(concept_type == "LAB_LOINC")
+
+# modify dates of '1900-01-01'
+demo_raw$last_discharge_date[demo_raw$last_discharge_date == "1900-01-01"] <- NA
+demo_raw$severe_date[demo_raw$severe_date == "1900-01-01"] <- NA
+demo_raw$death_date[demo_raw$death_date == "1900-01-01"] <- NA
+```
+
+
+```{r message=FALSE}
+#labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+#clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
+#demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
+#obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
+#loinc <- read_csv('public-data/penn-loinc-map.csv')
+neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
+  rename('icd' = `ICD-10`)
+
+neuro_patients <- obs_raw %>% 
+  filter(
+    days_since_admission >= 0,
+    concept_code %in% neuro_icds_10$icd) %>% 
+  distinct(patient_num, concept_code)
+
+non_neuro_patients <- data.frame(
+  patient_num = setdiff(demo_raw$patient_num, unique(neuro_patients$patient_num))) %>% 
+  mutate(concept_code = 'NN')
+
+readmissions <- clin_raw %>% 
+  group_by(patient_num) %>% 
+  mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
+  ungroup() %>% 
+  filter(delta_hospitalized != 0) %>% 
+  add_count(patient_num, name = 'status_changes') %>% 
+  filter(status_changes > 1) %>% 
+  mutate(n_readmissions = (status_changes - 1)) %>% 
+  arrange(desc(n_readmissions))
+
+length(unique(readmissions$patient_num))
+
+
+re_admin_stats <- readmissions %>% 
+  select(patient_num, n_readmissions) %>% 
+  distinct() %>% 
+  count(n_readmissions)
+print(re_admin_stats)
+
+re_admin_stats %>% 
+  ggplot() +
+  geom_col(aes(x = n_readmissions, y = n))
+```
+
+Length of stay is estimated based on the last day of having an "observation".
+
+```{r}
+days_count_min_max <- obs_raw %>%
+  group_by(patient_num) %>%
+  summarise(
+    distinct_days = n_distinct(days_since_admission),
+    min_hos = min(days_since_admission),
+    # n_stay = max(days_since_admission),
+    .groups = 'drop'
+  )
+
+demo_df <- demo_raw %>% 
+  # please comment out the three following lines of renamew,
+  # this is only for Penn-specific data
+  #rename('severe_date' = severe_date_shift, 
+  #       'admission_date' = admission_date_shift,
+  #       'death_date' = death_date_shift,
+  #       'last_discharge_date' = last_discharge_date_shift) %>% 
+  mutate(time_to_severe = severe_date - admission_date,
+         time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
+         time_to_death = death_date - admission_date,
+         time_to_death = ifelse(time_to_death < 0, NA, time_to_death),
+         readmitted = patient_num %in% readmissions$patient_num,
+         neuro_cond = as.factor(patient_num %in% neuro_patients$patient_num) %>% 
+           fct_recode(`Has neurological condition` = "TRUE",
+                      `No neurological condition` = "FALSE"),
+         Survival = as.factor(deceased) %>% 
+           fct_recode(Alive = "0", Deceased = "1"),
+         sex = as.factor(sex),
+         race = as.factor(race),
+         age_group = as.factor(age_group),
+         Severity = as.factor(severe) %>% 
+           fct_recode(Severe = "1", `Non-severe` = "0"),
+         n_stay = as.numeric(last_discharge_date - admission_date,
+                             units="days")
+         ) %>% 
+  left_join(days_count_min_max, by = 'patient_num')
+
+nat_hist_df <- clin_raw %>% 
+  group_by(patient_num) %>% 
+  summarise(ever_severe = max(severe) %>% as.logical(), 
+            death = max(deceased) %>% as.logical(),
+            .groups = 'drop') %>% 
+  left_join(demo_df %>% select(patient_num, readmitted), 
+            by = 'patient_num')
+```
+
+## Demographics (Table 1)
+
+```{r}
+demo_table <- table1::table1(
+  ~ Sex + `Age Group` + Race + Severity + Survival + Readmitted +
+    `Time to severity onset (days)` + `Time to death (days)` 
+  | neuro_cond,
+  data = demo_df %>% 
+  select(patient_num, Sex = sex, `Age Group` = age_group, 
+         Race = race, Severity, Survival, 
+         `Time to severity onset (days)` = time_to_severe, 
+         `Time to death (days)` = time_to_death, 
+         Readmitted = readmitted, neuro_cond),
+  overall = "Total",
+  export = "results/demographics.csv")
+demo_table
+```
+
+```{r eval=FALSE, include=FALSE}
+# penn_labs <- obs_raw %>% 
+#   left_join(loinc, by = c('concept_code' = 'LOINC')) %>% 
+#   pivot_wider(id_cols = c(patient_num, days_since_admission), 
+#               names_from = short_name, values_from = value,
+#               values_fn = median) %>%
+#   arrange(patient_num, days_since_admission) %>% 
+#   rownames_to_column('id') %>%
+#   rename('covid_id' = patient_num, 'time' = days_since_admission) %>% 
+#   mutate(id = as.integer(id)) %>% 
+#   {.}
+# non_lab_value_names <- c('id', 'covid_id', 'time')
+# lab_value_names <- setdiff(names(penn_labs), non_lab_value_names)
+```
+
+## Short term
+
+Do hospitalized COVID-19 patients with neurological conditions have a different short-term natural history (hospital days, death, severity, readmission) from those without?
+
+### Length of stay
+
+```{r}
+demo_df %>% 
+  ggplot(aes(x = Severity, y = n_stay, fill = neuro_cond)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = NULL , subtitle = 'All patients') +
+  NULL
+
+demo_df %>% 
+  filter(!readmitted, !deceased) %>% 
+  ggplot(aes(x = Severity, y = n_stay, fill = neuro_cond)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = NULL , subtitle =  'Patients who survived, no readmission') +
+  NULL
+
+# demo_df %>% 
+#   ggplot(aes(x = neuro_cond, y = n_stay)) +
+#   geom_boxplot() +
+#   scale_fill_discrete(guide = FALSE)
+# 
+# demo_df %>% 
+#   filter(!readmitted, !deceased) %>% 
+#   ggplot(aes(x = neuro_cond, y = n_stay)) +
+#   geom_boxplot() +
+#   scale_fill_discrete(guide = FALSE)
+
+  
+lm(n_stay ~ neuro_cond + race
+    + sex + age_group
+   , data = demo_df) %>% 
+  summary()
+```
+
+NN: non-neurological code
+Check: after admission vs. before?
+
+```{r fig.width=10}
+neuro_patients %>% 
+  bind_rows(non_neuro_patients) %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  #mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  mutate(full_icd = case_when(
+    concept_code == 'NN' ~ 'No neurological condition',
+    TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
+             as.factor() %>% fct_reorder(n_stay)) %>%
+  ggplot(aes(y = full_icd, x = n_stay, fill = full_icd)) +
+  labs(y = NULL) +
+  geom_boxplot() + 
+  scale_fill_viridis_d(guide = FALSE) +
+  gghighlight(concept_code != 'NN') +
+  NULL
+```
+
+### Death, severity, readmission
+
+```{r warning=FALSE, fig.width=10}
+run_fish('death')
+run_fish('ever_severe')
+run_fish('readmitted')
+```
+
+TODO : add race, sex, age_group
+```{r}
+demo_df %>% 
+  left_join(nat_hist_df, by = 'patient_num') %>% 
+  select(neuro_cond, death) %>% 
+  table()
+
+demo_df %>% 
+  left_join(nat_hist_df, by = 'patient_num') %>% 
+  select(neuro_cond, ever_severe) %>% 
+  table()
+
+demo_df %>% 
+  select(neuro_cond, readmitted) %>% 
+  table()
+
+summarise_nat_hist <- function(variable){
+  demo_df %>% 
+  left_join(nat_hist_df, by = c('patient_num', 'readmitted')) %>% 
+  lm(as.formula(paste(variable, '~ neuro_cond')), data = .) %>% 
+    broom::tidy() %>% 
+    mutate(dependent_var = variable)
+}
+
+bind_rows(summarise_nat_hist('death'),
+          summarise_nat_hist('ever_severe'),
+          summarise_nat_hist('readmitted'))
+```
+
