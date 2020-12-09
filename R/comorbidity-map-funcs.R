@@ -6,7 +6,7 @@ library(tableone)
 # data = obs_raw
 # comorb_names <- get_comorb_names()
 
-map_charlson_codes <- function(data, comorb_names, num_days_since_admission) {
+map_charlson_codes <- function(data, comorb_names, num_days_since_admission, truncate = TRUE) {
   data <- data %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
            # filter for diagnoses prior to admission
@@ -27,14 +27,32 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission) {
 
   ## Because the 4CE has truncated ICD codes, we will also truncate the icd package index maps
   # Function to select first 3 characters of the ICD Code in all lists of the index map
-  icd10_map_charlson3 <- lapply(icd10_map_charlson, first_3)
-  icd9_map_charlson3 <- lapply(icd9_map_charlson, first_3)
+  if (truncate == TRUE) {
+    icd10_map_charlson <- lapply(icd10_map_charlson, first_3)
+    icd9_map_charlson <- lapply(icd9_map_charlson, first_3)
+  }
+
+  if (truncate == FALSE) {
+    # convert icd code to short format (without decimals)
+    # where diagnosis code is you non-truncated icd column
+    icd10 <- icd10 %>%
+      mutate(diagnosis_code = decimal_to_short(diagnosis_code)) %>%
+      select(-concept_code) %>%
+      rename(concept_code = diagnosis_code)
+
+    icd9 <- icd9 %>%
+      mutate(diagnosis_code = decimal_to_short(diagnosis_code)) %>%
+      select(-concept_code) %>%
+      rename(concept_code = diagnosis_code)
+
+  }
+
 
   # perform the mapping
   icd10_map <-
     icd10_comorbid(
       icd10,
-      map = icd10_map_charlson3,
+      map = icd10_map_charlson,
       icd_name = "concept_code",
       return_df = TRUE,
       visit_name = "patient_num",
@@ -44,7 +62,7 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission) {
   icd9_map <-
     icd9_comorbid(
       icd9,
-      map = icd9_map_charlson3,
+      map = icd9_map_charlson,
       icd_name = "concept_code",
       return_df = TRUE,
       visit_name = "patient_num",
@@ -99,19 +117,24 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission) {
 
   # Identify the specific codes that mapped
   # unlist the charlson mapping lists
+  icd10$concept_code <- as.character(icd10$concept_code)
+  icd9$concept_code <- as.character(icd9$concept_code)
+
   icd10_map <-
-    map_df(icd10_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
+    map_df(icd10_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
     filter(!concept_code %in% comorb_names$Abbreviation) %>%
+    mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
     # merge the mapping dataframe to the patient level ICD codes
     # this will return all comorbidities that mapped to our patient data
     inner_join(icd10, by = "concept_code")
 
   icd9_map <-
-    map_df(icd9_map_charlson3, ~ as.data.frame(.x), .id = "name") %>%
+    map_df(icd9_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
     filter(!concept_code %in% comorb_names$Abbreviation) %>%
+    mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
     inner_join(icd9, by = "concept_code")
 
