@@ -53,13 +53,11 @@ readmissions <- clin_raw %>%
   mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
   ungroup() %>% 
   filter(delta_hospitalized != 0) %>% 
-  add_count(patient_num, name = 'status_changes') %>% 
-  filter(status_changes > 1) %>% 
-  mutate(n_readmissions = (status_changes - 1)) %>% 
+  filter(in_hospital == 1) %>%
+  add_count(patient_num, name = 'n_readmissions') %>% 
   arrange(desc(n_readmissions))
 
 length(unique(readmissions$patient_num))
-
 
 re_admin_stats <- readmissions %>% 
   select(patient_num, n_readmissions) %>% 
