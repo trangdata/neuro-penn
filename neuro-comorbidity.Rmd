@@ -107,10 +107,13 @@ then run the `map_charlson_codes()` function:
 ```{r}
 comorb_names <- get_comorb_names()
 
-# where num_day_since_admission = -1 indicates that we only consider codes prior to the first COVID admission as comorbidities
-comorb <- map_charlson_codes(data = obs_raw, 
+# t1 <- earliest time point to consider comorbidities
+# t2 <- latest time point to consider comorbidities
+# example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
+comorb <- map_charlson_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
-                             num_days_since_admission = -1)
+                             t1 = -365, 
+                             t2 = -1)
 ```
 
 `map_charlson_codes()` outputs a 2-element lists: 
@@ -366,6 +369,98 @@ median_list
 
 Q: Do we need `median_list`?
 
+## Evaluating Timeframe of Comorbidities
+
+Qs: When are these comorbidities getting mapped. Understanding ICD code assignnment can help us prevent confusing complications with comorbidities and vice versa. 
+
+It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated?
+```{r}
+# maps codes that occurred anytime 356 days prior to COVID admission
+comorb365 <- map_charlson_codes(obs_raw, comorb_names, -365, -1) 
+
+# maps codes that occurred at least 15 days to a year prior to admission
+comorb365_15 <- map_charlson_codes(obs_raw, comorb_names, -365, -15) 
+
+# maps codes that occurred at least 14 days to 1 day prior to admission
+comorb14_1 <- map_charlson_codes(obs_raw, comorb_names, -14, -1) 
+
+# map only day of admission
+comorb_dayOf <- map_charlson_codes(obs_raw, comorb_names, 0, 0) 
+
+# consider codes only codes after admission
+comorb_After <- map_charlson_codes(obs_raw, comorb_names, 1, 1000) 
+
+## Abstract individual index_scores and compute table1
+# time_frame is text to provide a label that will indicate the timeframe of comorb mapping
+comorb365 <- process_tables(comorb365, "1 to 365 days prior admission")
+comorb365_15 <- process_tables(comorb365_15, "15 to 365 days prior admission")
+comorb14_1 <- process_tables(comorb14_1, "14 to 1 days prior admission")
+comorb_dayOf <- process_tables(comorb_dayOf, "Only Day of Admission")
+comorb_After <- process_tables(comorb_After, "Any Day After Admission")
+
+all_tables <- rbind(comorb365, comorb365_15, comorb14_1, comorb_dayOf, comorb_After)
+```
+
+### Timeline - All Patients
+```{r}
+all_tables$time_map <- factor(all_tables$time_map,
+                              levels = c("1 to 365 days prior admission",
+                                         "15 to 365 days prior admission",
+                                         "14 to 1 days prior admission",
+                                         "Only Day of Admission",
+                                         "Any Day After Admission"))
+
+ggplot(all_tables,
+           aes(x = time_map,  y = n_patients, fill = time_map)) +
+    geom_bar(stat = "identity") + 
+   facet_wrap(~Abbreviation) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+## First occurence of a comorbidity
+
+The below figure plots the first time a patient had an ICD code map to that specific comorbidity.
+
+Perhaps could go a conservative route and only include comorbidities if there was a previous record of it? However, each comorbidity category can contain multiple different types of diseases. So perhaps could be problematic.
+```{r}
+obs_first <- obs_raw %>% 
+  group_by(patient_num) %>% 
+  merge(mapped_codes_table, by = "concept_code") %>%
+  arrange(days_since_admission) %>%
+  group_by(patient_num, Abbreviation) %>%
+  mutate(first_occurence = min(days_since_admission),
+         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
+  ungroup()  %>%
+  filter(first_occurence_indicator == 1)
+
+ggplot(obs_first, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'slateblue') +
+   facet_wrap(~Abbreviation) 
+```
+
+## Neuro Patients timeline of first neuro diagnosis
+
+If this is helpful, we may want to move to the explore-neuro.rmd file.
+```{r}
+post_adm_neuro_pats <- obs_raw %>% 
+  filter(days_since_admission >= 0) %>% 
+  right_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  group_by(patient_num, concept_code) %>%
+  mutate(first_occurence = min(days_since_admission),
+         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
+  ungroup()  %>%
+  filter(first_occurence_indicator == 1)
+
+ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'slateblue') +
+   facet_wrap(~concept_code) 
+
+ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'tomato') +
+   facet_wrap(~`Neurological Disease Category`) 
+```
 ## Additional Notes:
 
 Neuro Codes: G04, G45, G46, I60, 161, 162, and 167 will map to comorbidities.
@@ -384,221 +479,5 @@ neuro_comorb_on_admission <- obs_raw %>%
   select(patient_num, concept_code) %>%
   distinct()
 unique(neuro_comorb_on_admission$concept_code)
-```
-
-## Evaluating Timeframe of Comorbidities
-
-Qs: When are these comorbidities getting mapped. Understanding ICD code assignnment can help us prevent confusing complications with comorbidities and vice versa. 
-
-It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated. 
-```{r}
-# considers only codes at least -15 days prior to admission as comorbidities
-comorb15 <- map_charlson_codes(obs_raw, comorb_names, -15) 
-
-# considers code day of admission as comorbidities
-comorb0 <- map_charlson_codes(obs_raw, comorb_names, 0) 
-
-# considers only codes between -14 & -1 days prior to admission as comorbidities
-obs_raw14_1 <- obs_raw %>% filter(days_since_admission >= -14 & days_since_admission <= -1)
-comorb14_1 <- map_charlson_codes(obs_raw14_1, comorb_names, -1) 
-
-# map only day of admission
-obs_raw0 <- obs_raw %>% filter(days_since_admission == 0)
-comorb_onlydayOf <- map_charlson_codes(obs_raw0, comorb_names, 0) 
-
-# consider codes only codes after admission
-obs_raw1 <- obs_raw %>% filter(days_since_admission >= 1)
-comorb_After <- map_charlson_codes(obs_raw1, comorb_names, 1) 
-
-# -15 to -365 days prior to admission
-index_scores15 <- comorb15$index_scores
-mapped_codes15 <- comorb15$mapped_codes_table
-
-day15_table1 <- get_table1(
-  index_scores15 %>% filter(patient_num %in% neuro_pt_post)) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores15), .,
-            by = c("Comorbidity", "Abbreviation")) %>%
-  mutate(time_map = "15 to 365 days prior admisison")
-
-
-# day of and prior to admission
-index_scores_dayOf <- comorb0$index_scores
-mapped_codes_dayOf <- comorb0$mapped_codes_table
-
-dayOf_table1 <- get_table1(
-  index_scores_dayOf %>% filter(patient_num %in% neuro_pt_post)) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores_dayOf), .,
-            by = c("Comorbidity", "Abbreviation"))%>%
-  mutate(time_map = "0 to -365 days admission")
-
-# -14 to -1 days before admission
-index_scores14_1 <- comorb14_1$index_scores
-mapped_codes14_1 <- comorb14_1$mapped_codes_table
-
-day14_table1 <- get_table1(
-  index_scores14_1 %>% filter(patient_num %in% neuro_pt_post)) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores14_1), .,
-            by = c("Comorbidity", "Abbreviation")) %>%
-  mutate(time_map = "14 to 1 days prior admisison")
-
-
-# Only Day of Admission
-index_scores_onlydayOf <- comorb_onlydayOf$index_scores
-mapped_codes_onlydayOf <- comorb_onlydayOf$mapped_codes_table
-
-onlydayOf_table1 <- get_table1(
-  index_scores_onlydayOf %>% filter(patient_num %in% neuro_pt_post)) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores_onlydayOf), .,
-            by = c("Comorbidity", "Abbreviation")) %>%
-  mutate(time_map = "day of admission")
-
-combined_table1_mod <- combined_table1 %>% 
-  mutate(time_map = "prior to admission") %>%
-  select(-prop_patients, -prop_neuro_pats)
-
-# day after admission
-# -15 to -365 days prior to admission
-index_scores_After <- comorb_After$index_scores
-mapped_codes_After <- comorb_After$mapped_codes_table
-
-After_table1 <- get_table1(
-  index_scores_After %>% filter(patient_num %in% neuro_pt_post)) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores_After), .,
-            by = c("Comorbidity", "Abbreviation")) %>%
-  mutate(time_map = "after admission")
-
-all_tables <- rbind(combined_table1_mod, day15_table1, day14_table1, onlydayOf_table1, After_table1)
-```
-
-### Timeline - All Patients
-```{r}
-all_tables$time_map <- factor(all_tables$time_map,
-                              levels = c("prior to admission",
-                                         "15 to 365 days prior admisison",
-                                         "14 to 1 days prior admisison",
-                                         "day of admission",
-                                         "after admission"))
-
-ggplot(all_tables,
-           aes(x = time_map,  y = n_patients, fill = time_map)) +
-    geom_bar(stat = "identity") + 
-   facet_wrap(~Abbreviation) + 
-  theme(axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
-```
-
-### Timeline - Neuro patients
-```{r}
-ggplot(all_tables,
-           aes(x = time_map,  y = n_neuro_pats, fill = time_map)) +
-    geom_bar(stat = "identity") + 
-   facet_wrap(~Abbreviation) + 
-  theme(axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
-```
-
-## Charlson Score Overtime 
-```{r}
-t1 <- median(index_scores$charlson_score)
-t2 <- median(index_scores15$charlson_score)
-t3 <- median(index_scores14_1$charlson_score)
-t4 <- median(index_scores_dayOf$charlson_score)
-t5 <- median(index_scores_After$charlson_score)
-
-char_time <- as.data.frame(rbind(t1, t2, t3, t4, t5))
-row.names(char_time) <- c("prior to admission", "-15-365", "-14-1", "day of admission", 
-                          "after admission")
-colnames(char_time) <- "Median_Charlson_Score"
-char_time <- tibble::rownames_to_column(char_time, "Time")
-
-char_time$Time <- factor(char_time$Time,
-                              levels = c("prior to admission",
-                                         "-15-365",
-                                         "-14-1",
-                                         "day of admission",
-                                         "after admission"))
-
-
-index_scores_neuro <- index_scores %>% filter(patient_num %in% neuro_pt_post)
-index_scores_neuro15 <- index_scores15 %>% filter(patient_num %in% neuro_pt_post)
-index_scores_neuro14_1 <- index_scores14_1 %>% filter(patient_num %in% neuro_pt_post)
-index_scores_neuro_dayOf <- index_scores_dayOf %>% filter(patient_num %in% neuro_pt_post)
-index_scores_neuro_After <- index_scores_After %>% filter(patient_num %in% neuro_pt_post)
-
-t1n <- median(index_scores_neuro$charlson_score)
-t2n <- median(index_scores_neuro15$charlson_score)
-t3n <- median(index_scores_neuro14_1$charlson_score)
-t4n <- median(index_scores_neuro_dayOf$charlson_score)
-t5n <- median(index_scores_neuro_After$charlson_score) 
-
-char_time_neuro <- as.data.frame(rbind(t1n, t2n, t3n, t4n, t5n))
-row.names(char_time_neuro) <- c("prior to admission", "-15-365", "-14-1", "day of admission", 
-                          "after admission")
-colnames(char_time_neuro) <- "Median_Charlson_Score"
-char_time_neuro <- tibble::rownames_to_column(char_time_neuro, "Time")
-
-char_time_neuro$Time <- factor(char_time_neuro$Time,
-                              levels = c("prior to admission",
-                                         "-15-365",
-                                         "-14-1",
-                                         "day of admission",
-                                         "after admission"))
-
-char_time_neuro$cohort <- "Neuro"
-char_time$cohort <- "All Patients"
-
-char_time_all <- rbind(char_time_neuro, char_time)
-
-ggplot(char_time_all, aes(x = Time, y = Median_Charlson_Score, fill = cohort)) + 
-  geom_bar(stat = 'identity', position = "dodge") + 
-  scale_fill_manual(values = c("gray", "slateblue"))
-
-```
-
-
-## First occurence of a comorbidity
-
-Perhaps could go a conservative route and only include comorbidities if there was a previous record of it? However, comorbidities can contain multiple different types of diseases. So perhaps could be problematic.
-```{r}
-obs_first <- obs_raw %>% 
-  group_by(patient_num) %>% 
-  merge(mapped_codes_table, by = "concept_code") %>%
-  arrange(days_since_admission) %>%
-  group_by(patient_num, Abbreviation) %>%
-  mutate(first_occurence = min(days_since_admission),
-         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
-  ungroup()  %>%
-  filter(first_occurence_indicator == 1)
-
-ggplot(obs_first, aes(x = days_since_admission)) + 
-  geom_histogram(fill = 'slateblue') +
-   facet_wrap(~Abbreviation) 
-```
-
-## Neuro Patients timeline of first neuro diagnosis
-```{r}
-post_adm_neuro_pats <- obs_raw %>% 
-  filter(days_since_admission >= 0) %>% 
-  right_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
-  group_by(patient_num, concept_code) %>%
-  mutate(first_occurence = min(days_since_admission),
-         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
-  ungroup()  %>%
-  filter(first_occurence_indicator == 1)
-
-ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
-  geom_histogram(fill = 'slateblue') +
-   facet_wrap(~concept_code) 
-
-ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
-  geom_histogram(fill = 'tomato') +
-   facet_wrap(~`Neurological Disease Category`) 
 ```
 

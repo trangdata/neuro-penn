@@ -3,24 +3,30 @@ library(tidyverse)
 library(tableone)
 
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
-# data = obs_raw
+# df = obs_raw (4ce LocalPatientObservations.csv)
 # comorb_names <- get_comorb_names()
+# t1 <- earliest time point to consider comorbidities
+# t2 <- latest time point to consider comorbidities
+# example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
+# num_days_prior_admission = -365 indicates that we consider all codes up to a year prior to the first COVID admission as comorbidities
+# day_of
+# truncate = TRUE indcates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
-map_charlson_codes <- function(data, comorb_names, num_days_since_admission, truncate = TRUE) {
-  data <- data %>%
+map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
+
+  df <- df %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
-           # filter for diagnoses prior to admission
-           days_since_admission <= num_days_since_admission)
+           days_since_admission >= t1 & days_since_admission <= t2)
 
-  # Create separate data frames for ICD9 and 10 Codes
+  # Create separate df frames for ICD9 and 10 Codes
   # icd package does not support simultaneous processing of both ICD code types
   # we will recombine after the initial processing
-  icd10 <- data %>%
+  icd10 <- df %>%
     select(-c(days_since_admission, value)) %>%
     filter(concept_type == "DIAG-ICD10") %>%
     distinct()
 
-  icd9 <- data %>%
+  icd9 <- df %>%
     select(-c(days_since_admission, value)) %>%
     filter(concept_type == "DIAG-ICD9") %>%
     distinct()
@@ -33,7 +39,7 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission, tru
   }
 
   if (truncate == FALSE) {
-    # convert icd code to short format (without decimals)
+    # convert icd code to short format (without decimals) to faciliate mapping
     # where diagnosis code is you non-truncated icd column
     icd10 <- icd10 %>%
       mutate(diagnosis_code = decimal_to_short(diagnosis_code)) %>%
@@ -123,7 +129,6 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission, tru
   icd10_map <-
     map_df(icd10_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
-    filter(!concept_code %in% comorb_names$Abbreviation) %>%
     mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
     # merge the mapping dataframe to the patient level ICD codes
@@ -133,7 +138,6 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission, tru
   icd9_map <-
     map_df(icd9_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
-    filter(!concept_code %in% comorb_names$Abbreviation) %>%
     mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
     inner_join(icd9, by = "concept_code")
@@ -159,7 +163,7 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission, tru
   # Bind both ICD 9 and 10 code tables together
   mapped_codes_table <-
     icd10_mapped_table %>%
-    {if (nrow(icd9_map) > 0) bind_rows(icd9_mapped_table) else .} %>%
+    try(bind_rows(icd9_mapped_table), silent = TRUE) %>%
     # calculate how many patients had each unique comorbidity/concept_code
     count(concept_code, Abbreviation, long_desc, name = 'n_patients') %>%
     arrange(desc(n_patients))
@@ -174,6 +178,7 @@ map_charlson_codes <- function(data, comorb_names, num_days_since_admission, tru
 
 }
 
+# where df takes in the matrix for the initial mapping
 get_table1 <- function(
   df, comorbidities = comorb_names$Abbreviation
 ){
@@ -183,6 +188,16 @@ get_table1 <- function(
     data.frame(n_patients = .) %>%
     rownames_to_column("Abbreviation") %>%
     right_join(comorb_names, ., by = "Abbreviation")
+}
+
+process_tables <- function(comorb_list, time_frame) {
+  index_scores <- comorb_list$index_scores
+  table1 <- get_table1(
+    index_scores %>% filter(patient_num %in% neuro_pt_post)) %>%
+    rename('n_neuro_pats' = n_patients) %>%
+    left_join(get_table1(index_scores), .,
+              by = c("Comorbidity", "Abbreviation")) %>%
+    mutate(time_map = paste(time_frame))
 }
 
 get_comorb_names <- function(){
