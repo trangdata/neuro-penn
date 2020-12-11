@@ -14,12 +14,27 @@ theme_set(theme_bw() +
 for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
+## NWU data
+```{r}
+# clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
+# demo_raw <- read_csv(
+#   '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#                      na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
+# labs_raw <- obs_raw %>% filter(concept_type == "LAB_LOINC")
+```
+
+## Penn data
 ```{r message=FALSE}
-# labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
-demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv')
+demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv', na = '1900-01-01')
 obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
 loinc <- read_csv('public-data/penn-loinc-map.csv')
+```
+
+
+```{r}
 neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
 
@@ -37,10 +52,12 @@ readmissions <- clin_raw %>%
   group_by(patient_num) %>% 
   mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
   ungroup() %>% 
-  filter(delta_hospitalized != 0) %>% 
-  add_count(patient_num, name = 'status_changes') %>% 
-  filter(status_changes > 1) %>% 
-  mutate(n_readmissions = (status_changes - 1)/2) %>% 
+  filter(delta_hospitalized != 0,
+         in_hospital == 1) %>%
+  add_count(patient_num, name = 'n_readmissions') %>%
+  # add_count(patient_num, name = 'status_changes') %>% 
+  # filter(status_changes > 1) %>% 
+  # mutate(n_readmissions = (status_changes - 1)/2) %>% 
   arrange(desc(n_readmissions))
 
 length(unique(readmissions$patient_num))
@@ -55,7 +72,6 @@ re_admin_stats
 re_admin_stats %>% 
   ggplot() +
   geom_col(aes(x = n_readmissions, y = n))
-
 ```
 
 Length of stay is estimated based on the last day of having an "observation".
@@ -104,7 +120,6 @@ nat_hist_df <- clin_raw %>%
             .groups = 'drop') %>% 
   left_join(demo_df %>% select(patient_num, readmitted), 
             by = 'patient_num')
-
 ```
 
 ## Demographics (Table 1)
@@ -203,7 +218,7 @@ neuro_patients %>%
 
 ### Death, severity, readmission
 
-```{r warning=FALSE, fig.width=10, eval=FALSE}
+```{r warning=FALSE, fig.width=10}
 run_fish('death')
 run_fish('ever_severe')
 run_fish('readmitted')
@@ -237,3 +252,4 @@ bind_rows(summarise_nat_hist('death'),
           summarise_nat_hist('ever_severe'),
           summarise_nat_hist('readmitted'))
 ```
+
