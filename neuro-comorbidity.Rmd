@@ -7,7 +7,8 @@ output: html_document
 library(tidyverse)
 library(readxl)
 library(DT)
-# library(gghighlight)
+library(rcartocolor)
+library(gghighlight)
 
 theme_set(theme_bw() + 
             theme(legend.title = element_blank(),
@@ -20,31 +21,23 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 # obs_raw <- read.csv("../../Phase2.1/LocalPatientObservations.csv")
 ```
 
-```{r message=FALSE}
+```{r penn, message=FALSE}
 # labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
 # clin_raw <- read_csv(
 #   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
 #   col_types = list(patient_num = col_character()))
-#demo_raw <- read_csv(
-#  '../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv',
-#  col_types = list(patient_num = col_character()))
-#obs_raw <- read_csv(
-#  '../thrombotic-penn/data/LocalPatientObservations-UPenn.csv',
-#  col_types = list(patient_num = col_character()))
+demo_raw <- read_csv(
+ '../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv',
+ col_types = list(patient_num = col_character()))
+obs_raw <- read_csv(
+ '../thrombotic-penn/data/LocalPatientObservations-UPenn.csv',
+ col_types = list(patient_num = col_character()))
 ```
 
 ```{r message=FALSE, warning=FALSE}
 loinc <- read_csv('public-data/penn-loinc-map.csv')
 neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
-
-```
-
-```{r message=FALSE, warning=FALSE}
-neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
-  rename('icd' = `ICD-10`)
-demo_raw <- read.csv("../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv")
-obs_raw <- read.csv("../../Phase2.1/LocalPatientObservations.csv")
 ```
 
 ## Data pre-processing
@@ -87,12 +80,12 @@ demo_processed <- obs_raw %>%
            days_since_admission > 0 & 
            patient_num %in% all_neuro_pats) %>% 
   group_by(patient_num) %>% 
-  summarise(neuro_post = any(neuro_prior_icd),
+  summarise(neuro_post = ifelse(any(neuro_prior_icd), 'Neuro', 'Non-neuro'),
             .groups = 'drop') %>% 
   left_join(demo_raw, by = 'patient_num')
 
 neuro_pt_post <- demo_processed %>% 
-  filter(neuro_post) %>% 
+  filter(neuro_post == 'Neuro') %>% 
   pull(patient_num) %>% 
   unique()
 
@@ -107,8 +100,8 @@ then run the `map_charlson_codes()` function:
 ```{r}
 comorb_names <- get_comorb_names()
 
-# t1 <- earliest time point to consider comorbidities
-# t2 <- latest time point to consider comorbidities
+# t1: earliest time point to consider comorbidities
+# t2: latest time point to consider comorbidities
 # example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
 comorb <- map_charlson_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
@@ -146,10 +139,20 @@ combined_table1 <- get_table1(
   mutate(prop_patients = n_patients/nrow(demo_raw),
          prop_neuro_pats = n_neuro_pats/nrow(demo_raw))
 
+write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
+
 datatable(combined_table1) %>% 
   formatPercentage(c('prop_patients', 'prop_neuro_pats'))
 
-write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
+combined_table1 %>% 
+  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
+  ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
+  geom_col(position = 'dodge') +
+  scale_fill_brewer(palette = 'Dark2', direction = -1,
+                    guide = guide_legend(reverse=TRUE),
+                    label = c('Neuro', 'All')) +
+  labs(y = NULL)
 ```
 
 
@@ -177,28 +180,6 @@ index_scores %>%
   select(MI:HIV) %>% 
   cor() %>% 
   heatmap()
-
-icd_plot <- index_scores %>% 
-  select(MI:HIV) %>% 
-  pivot_longer(everything()) %>% 
-  filter(value != 0) %>% 
-  left_join(comorb_names, c('name' = 'Abbreviation')) %>% 
-  mutate(fullname = glue::glue('{Comorbidity} ({name})'))
-
-icd_plot %>% 
-  count(fullname) %>% 
-  ggplot(aes(x = n, y = fct_reorder(fullname, n))) +
-  geom_col() +
-  labs(y = NULL)
-
-index_scores %>% 
-  pivot_longer(MI:HIV) %>% 
-  filter(value != 0) %>% 
-  left_join(comorb_names, c('name' = 'Abbreviation')) %>% 
-  mutate(fullname = glue::glue('{Comorbidity} ({name})')) %>% 
-  ggplot(aes(x = charlson_score, y = fct_reorder(fullname, charlson_score))) +
-  geom_boxplot() +
-  labs(y = NULL)
 ```
 
 
@@ -223,30 +204,21 @@ scores_neuro <- obs_raw %>%
   left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
   left_join(scores_unique, by = 'patient_num') %>% 
   filter(!is.na(charlson_score)) %>% 
-  mutate(`Neurological Disease Category` =
+  mutate(concept_code = case_when(
+           is.na(`Neurological Disease Category`) ~ 'NN',
+           TRUE ~ concept_code) %>% 
+           as.factor() %>% 
+           fct_reorder(- charlson_score),
+         `Neurological Disease Category` =
            as.factor(`Neurological Disease Category`) %>% 
-           fct_reorder(charlson_score),
-         concept_code = as.factor(concept_code) %>% 
-           fct_reorder(- charlson_score)) %>% 
+           fct_reorder(charlson_score)) %>% 
   {.}
-
-scores_unique %>% 
-  ggplot(aes(x = charlson_score, fill = neuro_post)) +
-  geom_histogram(binwidth = 1) +
-  NULL
 
 scores_unique %>% 
   ggplot(aes(x = neuro_post, y = charlson_score, fill = neuro_post)) + 
   geom_boxplot(outlier.colour = NA) + 
   geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
   NULL
-```
-
-### Median and IQR
-
-```{r}
-aggregate(charlson_score ~ neuro_post, FUN = "median", scores_unique)
-aggregate(charlson_score ~ neuro_post, FUN = "summary", scores_unique)
 ```
 
 
@@ -274,9 +246,7 @@ Here we will use the `obs_processed` dataframe in contrast to our `scores_unique
 ```{r}
 # scores$patient_num <- as.numeric(as.character(scores$patient_num))
 scores_neuro %>% 
-  filter(neuro_post, 
-         !is.na(charlson_score), 
-         !is.na(`Neurological Disease Category`)) %>% 
+  filter(!is.na(charlson_score)) %>% 
   ggplot(aes(y = concept_code, x = charlson_score, fill = concept_code)) + 
   facet_grid(rows = vars(`Neurological Disease Category`),
              scales = 'free', space = 'free') +
@@ -291,51 +261,20 @@ scores_neuro %>%
         panel.spacing.y = unit(0, "points"))
 ```
 
-### By grouped neuro diagnosis and severity
-
-How would we interpret this figure?
-
-```{r}
-scores_neuro %>% 
-  ggplot(aes(
-    y = reorder(`Neurological Disease Category`, - charlson_score, na.rm = TRUE), 
-    x = charlson_score, fill = severe)) + 
-  geom_boxplot() + 
-  labs(x = 'Charlson score', y = NULL) +
-  scale_fill_manual(name = NULL, 
-                    values = c("gray", "darkorange"),
-                    guide = guide_legend(reverse = TRUE)) +
-  NULL
-```
-
-### Neuro vs non-neuro patients
-
-```{r}
-comorb_long <- scores_unique %>% 
-  select(patient_num, neuro_post, charlson_score, MI:HIV) %>% 
-  pivot_longer(MI:HIV) %>% 
-  filter(value == 1)
-
-comorb_long %>% 
-  mutate(neuro_post = as.factor(neuro_post) %>% 
-           fct_recode('Neuro' = 'TRUE', 'Non-neuro' = 'FALSE')) %>% 
-  ggplot(aes(
-    y = reorder(name, - charlson_score, na.rm = TRUE), 
-    x = charlson_score, fill = neuro_post)) + 
-  geom_boxplot() + 
-  labs(x = 'Charlson score', y = NULL) +
-  scale_fill_manual(values = c("gray", "slateblue"),
-                    guide = guide_legend(reverse = TRUE)) +
-  NULL
-```
 
 ## Neuro condition vs comorbidity type
 
 ```{r}
+# Neuro vs non-neuro patients
+comorb_long <- scores_unique %>%
+  select(patient_num, neuro_post, charlson_score, MI:HIV) %>%
+  pivot_longer(MI:HIV) %>%
+  filter(value == 1)
+
 comorb_wilcox_func <- function(comorb, df = comorb_long) {
   df <- df %>% filter(name == comorb)
-  neuro <- df %>% filter(neuro_post == 1)
-  non_neuro <- df %>% filter(neuro_post == 0)
+  neuro <- df %>% filter(neuro_post == 'Neuro')
+  non_neuro <- df %>% filter(neuro_post == 'Non-neuro')
   wilcox.test(neuro$charlson_score, non_neuro$charlson_score)$p.value
 }
 
@@ -377,16 +316,12 @@ It would be helpful to review the literature as well, what did the original deve
 ```{r}
 # maps codes that occurred anytime 356 days prior to COVID admission
 comorb365 <- map_charlson_codes(obs_raw, comorb_names, -365, -1) 
-
 # maps codes that occurred at least 15 days to a year prior to admission
 comorb365_15 <- map_charlson_codes(obs_raw, comorb_names, -365, -15) 
-
 # maps codes that occurred at least 14 days to 1 day prior to admission
 comorb14_1 <- map_charlson_codes(obs_raw, comorb_names, -14, -1) 
-
 # map only day of admission
 comorb_dayOf <- map_charlson_codes(obs_raw, comorb_names, 0, 0) 
-
 # consider codes only codes after admission
 comorb_After <- map_charlson_codes(obs_raw, comorb_names, 1, 1000) 
 
@@ -403,20 +338,29 @@ all_tables <- rbind(comorb365, comorb365_15, comorb14_1, comorb_dayOf, comorb_Af
 
 ### Timeline - All Patients
 ```{r}
-all_tables$time_map <- factor(all_tables$time_map,
-                              levels = c("1 to 365 days prior admission",
-                                         "15 to 365 days prior admission",
-                                         "14 to 1 days prior admission",
-                                         "Only Day of Admission",
-                                         "Any Day After Admission"))
+all_tables$time_map <- factor(
+  all_tables$time_map,
+  levels = c(
+    "1 to 365 days prior admission",
+    "15 to 365 days prior admission",
+    "14 to 1 days prior admission",
+    "Only Day of Admission",
+    "Any Day After Admission"
+  )
+)
 
-ggplot(all_tables,
-           aes(x = time_map,  y = n_patients, fill = time_map)) +
-    geom_bar(stat = "identity") + 
-   facet_wrap(~Abbreviation) + 
-  theme(axis.title.x=element_blank(),
-        axis.text.x=element_blank(),
-        axis.ticks.x=element_blank())
+
+ggplot(all_tables, aes(x = time_map,  y = n_patients, fill = time_map)) +
+  geom_bar(stat = "identity") +
+  facet_wrap( ~ Abbreviation) +
+  scale_fill_carto_d() +
+  theme(
+    legend.position = c(0.8, 0.12),
+    legend.key.height = unit(3, 'mm'),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
 ```
 
 ## First occurence of a comorbidity
