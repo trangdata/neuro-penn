@@ -27,10 +27,10 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 #   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
 #   col_types = list(patient_num = col_character()))
 demo_raw <- read_csv(
- '../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv',
- col_types = list(patient_num = col_character()))
+ '../thrombotic-penn/data/LocalPatientSummary.csv',
+ col_types = list(patient_num = col_character()), na = '1900-01-01')
 obs_raw <- read_csv(
- '../thrombotic-penn/data/LocalPatientObservations-UPenn.csv',
+ '../thrombotic-penn/data/LocalPatientObservations.csv',
  col_types = list(patient_num = col_character()))
 ```
 
@@ -99,6 +99,7 @@ then run the `map_charlson_codes()` function:
 
 ```{r}
 comorb_names <- get_comorb_names()
+comorbs <- comorb_names$Abbreviation
 
 # t1: earliest time point to consider comorbidities
 # t2: latest time point to consider comorbidities
@@ -176,10 +177,13 @@ length(unique(index_scores$patient_num))
 
 The following code will print the comorbidity matrix with a subset of patients (n)
 ```{r}
-index_scores %>% 
-  select(MI:HIV) %>% 
+n_comorbs <- colSums(index_scores[, comorbs])
+pos_comorbs <- names(n_comorbs[n_comorbs > 0])
+
+index_scores[, pos_comorbs] %>% 
   cor() %>% 
   heatmap()
+
 ```
 
 
@@ -267,8 +271,8 @@ scores_neuro %>%
 ```{r}
 # Neuro vs non-neuro patients
 comorb_long <- scores_unique %>%
-  select(patient_num, neuro_post, charlson_score, MI:HIV) %>%
-  pivot_longer(MI:HIV) %>%
+  select(patient_num, neuro_post, charlson_score, any_of(comorbs)) %>%
+  pivot_longer(any_of(comorbs)) %>%
   filter(value == 1)
 
 comorb_wilcox_func <- function(comorb, df = comorb_long) {
@@ -278,9 +282,8 @@ comorb_wilcox_func <- function(comorb, df = comorb_long) {
   wilcox.test(neuro$charlson_score, non_neuro$charlson_score)$p.value
 }
 
-comorbs <- comorb_names$Abbreviation
 
-wilcox_res <- comorbs %>%
+wilcox_res <- pos_comorbs %>%
   sapply(comorb_wilcox_func, df = comorb_long) %>%
   data.frame(p_value = .) %>%
   cbind(comorbs) %>%
