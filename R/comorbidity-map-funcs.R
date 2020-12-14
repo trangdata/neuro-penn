@@ -3,14 +3,15 @@ library(tidyverse)
 library(tableone)
 
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
-# df = obs_raw (4ce LocalPatientObservations.csv)
+# df = obs_raw # (4ce LocalPatientObservations.csv)
 # comorb_names <- get_comorb_names()
 # t1 <- earliest time point to consider comorbidities
 # t2 <- latest time point to consider comorbidities
-# example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
+# t1 = -365; t2 = -1;
+# example above will map all codes up to a year prior but before admission (admission = day 0)
 # num_days_prior_admission = -365 indicates that we consider all codes up to a year prior to the first COVID admission as comorbidities
 # day_of
-# truncate = TRUE indcates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
+# truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
 map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
 
@@ -83,8 +84,9 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
     summarise(
       across(everything(), ~ try(max(.x), silent = TRUE)),
       .groups = 'drop'
-    ) %>%
-    arrange(as.numeric(patient_num))
+    )
+
+  colSums(icd_map[ , -1])
 
   ## Calculate Index Scores
   charlson_score <- charlson_from_comorbid(
