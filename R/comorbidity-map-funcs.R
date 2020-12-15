@@ -4,16 +4,17 @@ library(tableone)
 
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
 # df = obs_raw # (4ce LocalPatientObservations.csv)
-# comorb_names <- get_comorb_names()
+# comorb_names <- get_charlson_names() or get_elix_names()
 # t1 <- earliest time point to consider comorbidities
 # t2 <- latest time point to consider comorbidities
 # t1 = -365; t2 = -1;
 # example above will map all codes up to a year prior but before admission (admission = day 0)
 # num_days_prior_admission = -365 indicates that we consider all codes up to a year prior to the first COVID admission as comorbidities
 # day_of
+# map_type = 'charlson', 'quan-deyo', 'elixhauser'
 # truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
-map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
+map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
 
   df <- df %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
@@ -32,15 +33,29 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
     filter(concept_type == "DIAG-ICD9") %>%
     distinct()
 
+  # select map_type for analysis
+  if (map_type == "charlson") {
+    icd10_comorb_map = icd10_map_charlson
+    icd9_comorb_map = icd9_map_charlson
+  }
+  if (map_type == "quan-deyo") {
+    icd10_comorb_map = icd10_map_quan_deyo
+    icd9_comorb_map = icd9_map_quan_deyo
+  }
+  if (map_type == "elixhauser") {
+    icd10_comorb_map = icd10_map_quan_elix
+    icd9_comorb_map = icd9_map_quan_elix
+  }
+
   ## Because the 4CE has truncated ICD codes, we will also truncate the icd package index maps
   # Function to select first 3 characters of the ICD Code in all lists of the index map
   if (truncate == TRUE) {
-    icd10_map_charlson <- lapply(icd10_map_charlson, first_3)
-    icd9_map_charlson <- lapply(icd9_map_charlson, first_3)
+    icd10_comorb_map <- lapply(icd10_comorb_map, first_3)
+    icd9_comorb_map <- lapply(icd9_comorb_map, first_3)
   }
 
   if (truncate == FALSE) {
-    # convert icd code to short format (without decimals) to faciliate mapping
+    # convert icd code to short format (without decimals) to facilitate mapping
     # where diagnosis code is you non-truncated icd column
     icd10 <- icd10 %>%
       mutate(diagnosis_code = decimal_to_short(diagnosis_code)) %>%
@@ -59,17 +74,16 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
   icd10_map <-
     icd10_comorbid(
       icd10,
-      map = icd10_map_charlson,
-      icd_name = "concept_code",
+      map = icd10_comorb_map,
       return_df = TRUE,
       visit_name = "patient_num",
-      return_binary = TRUE
+      return_binary = TRUE,
     )
 
   icd9_map <-
     icd9_comorbid(
       icd9,
-      map = icd9_map_charlson,
+      map = icd9_comorb_map,
       icd_name = "concept_code",
       return_df = TRUE,
       visit_name = "patient_num",
@@ -89,6 +103,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
   colSums(icd_map[ , -1])
 
   ## Calculate Index Scores
+  if (map_type == 'charlson' | map_type == 'quan-deyo') {
   charlson_score <- charlson_from_comorbid(
     icd_map,
     visit_name = "patient_num",
@@ -107,21 +122,53 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
     data.frame(quan_score = .) %>%
     tibble::rownames_to_column("patient_num")
 
-  index_scores <- icd_map %>%
-    full_join(charlson_score, by = "patient_num") %>%
-    full_join(quan_score, by = "patient_num") %>%
-    # calculate difference between Charlson and Quan scores
-    mutate(score_diff = charlson_score - quan_score,
-           abs_score_diff = abs(score_diff)) %>%
-    arrange(desc(charlson_score)) %>%
-    select(
-      patient_num,
-      charlson_score,
-      quan_score,
-      score_diff,
-      abs_score_diff,
-      everything()
-    )
+  }
+
+  # need to check If I've done this correctly - it seems to be that their are different versions
+  # of the elixhuaser mapping and that in one HTN is combined. I think this is the version needed
+  # to run the van_walraven_from_comorb function
+  if (map_type == "elixhauser") {
+    # combine hypertension into one category
+    icd_map <- icd_map %>%
+      mutate(HTN = pmax(HTN, HTNcx, na.rm = TRUE)) %>%
+      select(-HTNcx)
+
+    van_walraven_score <- van_walraven_from_comorbid(
+      icd_map,
+      visit_name = 'patient_num',
+      hierarchy = TRUE
+    ) %>%
+      data.frame(van_walraven_score = .) %>%
+      tibble::rownames_to_column("patient_num")
+  }
+
+  if(map_type == 'charlson' | map_type == 'quan-deyo') {
+    index_scores <- icd_map %>%
+      full_join(charlson_score, by = "patient_num") %>%
+      full_join(quan_score, by = "patient_num") %>%
+      # calculate difference between Charlson and Quan scores
+      mutate(score_diff = charlson_score - quan_score,
+             abs_score_diff = abs(score_diff)) %>%
+      arrange(desc(charlson_score)) %>%
+      select(
+        patient_num,
+        charlson_score,
+        quan_score,
+        score_diff,
+        abs_score_diff,
+        everything()
+      )
+  } else {
+    index_scores <- icd_map %>%
+      full_join(van_walraven_score, by = "patient_num") %>%
+      arrange(desc(van_walraven_score)) %>%
+      select(
+        patient_num,
+        van_walraven_score,
+        everything()
+      )
+  }
+
 
   # Identify the specific codes that mapped
   # unlist the charlson mapping lists
@@ -129,7 +176,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
   icd9$concept_code <- as.character(icd9$concept_code)
 
   icd10_map <-
-    map_df(icd10_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
+    map_df(icd10_comorb_map, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
     mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
@@ -138,7 +185,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
     inner_join(icd10, by = "concept_code")
 
   icd9_map <-
-    map_df(icd9_map_charlson, ~ as.data.frame(.x), .id = "name") %>%
+    map_df(icd9_comorb_map, ~ as.data.frame(.x), .id = "name") %>%
     `colnames<-`(c("Abbreviation", "concept_code")) %>%
     mutate(concept_code = as.character(concept_code)) %>%
     distinct() %>%
@@ -181,6 +228,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, truncate = TRUE) {
 }
 
 # where df takes in the matrix for the initial mapping
+
 get_table1 <- function(
   df, comorbidities = comorb_names$Abbreviation
 ){
@@ -202,10 +250,16 @@ process_tables <- function(comorb_list, time_frame) {
     mutate(time_map = paste(time_frame))
 }
 
-get_comorb_names <- function(){
+get_charlson_names <- function(){
   data.frame(
     Comorbidity = do.call(rbind, names_charlson),
     Abbreviation = do.call(rbind, names_charlson_abbrev))
+}
+
+get_quan_elix_names <- function(){
+  data.frame(
+    Comorbidity = do.call(rbind, names_quan_elix),
+    Abbreviation = do.call(rbind, names_quan_elix_abbrev))
 }
 
 first_3 <- function(x) {
