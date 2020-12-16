@@ -4,7 +4,7 @@ This repository performs missing data analysis on data at different sites and re
 
 ## Which script should I run?
 
-**Short answer: `short-time.Rmd`.**
+**Short answer: `short-time.Rmd`**
 
 The best way to run this analysis is to clone this repository on your local machine
 (please ensure you're in a directory where you want the repository to be downloaded):
@@ -17,7 +17,7 @@ Then, go inside the repository:
 
 and make a copy of `short-time.Rmd`, name it with your site name, for example:
 
-```cp short-time.Rmd short-time-penn.Rmd```.
+```cp short-time.Rmd short-time-penn.Rmd```
 
 Then, open the R project
 
