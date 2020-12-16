@@ -1,6 +1,5 @@
 library(icd)
 library(tidyverse)
-library(tableone)
 
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
 # df = obs_raw # (4ce LocalPatientObservations.csv)
@@ -69,7 +68,6 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
 
   }
 
-
   # perform the mapping
   icd10_map <-
     icd10_comorbid(
@@ -100,27 +98,25 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
       .groups = 'drop'
     )
 
-  colSums(icd_map[ , -1])
-
   ## Calculate Index Scores
   if (map_type == 'charlson' | map_type == 'quan-deyo') {
-  charlson_score <- charlson_from_comorbid(
-    icd_map,
-    visit_name = "patient_num",
-    scoring_system = "charlson",
-    hierarchy = TRUE
-  ) %>%
-    data.frame(charlson_score = .) %>%
-    tibble::rownames_to_column("patient_num")
+    charlson_score <- charlson_from_comorbid(
+      icd_map,
+      visit_name = "patient_num",
+      scoring_system = "charlson",
+      hierarchy = TRUE
+    ) %>%
+      data.frame(charlson_score = .) %>%
+      tibble::rownames_to_column("patient_num")
 
-  quan_score <- charlson_from_comorbid(
-    icd_map,
-    visit_name = "patient_num",
-    scoring_system = "quan",
-    hierarchy = TRUE
-  ) %>%
-    data.frame(quan_score = .) %>%
-    tibble::rownames_to_column("patient_num")
+    quan_score <- charlson_from_comorbid(
+      icd_map,
+      visit_name = "patient_num",
+      scoring_system = "quan",
+      hierarchy = TRUE
+    ) %>%
+      data.frame(quan_score = .) %>%
+      tibble::rownames_to_column("patient_num")
 
   }
 
@@ -240,14 +236,12 @@ get_table1 <- function(
     right_join(comorb_names, ., by = "Abbreviation")
 }
 
-process_tables <- function(comorb_list, time_frame) {
-  index_scores <- comorb_list$index_scores
-  table1 <- get_table1(
+process_tables <- function(index_scores) {
+  get_table1(
     index_scores %>% filter(patient_num %in% neuro_pt_post)) %>%
     rename('n_neuro_pats' = n_patients) %>%
     left_join(get_table1(index_scores), .,
-              by = c("Comorbidity", "Abbreviation")) %>%
-    mutate(time_map = paste(time_frame))
+              by = c("Comorbidity", "Abbreviation"))
 }
 
 get_charlson_names <- function(){
