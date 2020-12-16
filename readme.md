@@ -4,7 +4,7 @@ This repository performs missing data analysis on data at different sites and re
 
 ## Which script should I run?
 
-Short answer: `explore.Rmd` and `neuro-comorbidity.Rmd`.
+**Short answer: `short-time.Rmd`.**
 
 The best way to run this analysis is to clone this repository on your local machine
 (please ensure you're in a directory where you want the repository to be downloaded):
@@ -15,25 +15,21 @@ Then, go inside the repository:
 
 ```cd neuro-penn```
 
-and make a copy of `explore.Rmd` and `neuro-comorbidity.Rmd`, name it with your site name, for example:
+and make a copy of `short-time.Rmd`, name it with your site name, for example:
 
-```cp explore.Rmd explore-penn.Rmd```
-
-and 
-
-```cp neuro-comorbidity.Rmd neuro-comorbidity-penn.Rmd```
+```cp short-time.Rmd short-time-penn.Rmd```.
 
 Then, open the R project
 
-```open missing-data-4ce.Rproj```
+```open neuro-penn.Rproj```
 
-and navigate to the newly created file (e.g. `explore-penn.Rmd` and `neuro-comorbidity-penn.Rmd`) to modify the code to run on the data at your specific site.
+and navigate to the newly created file (e.g. `short-time-penn.Rmd`) to modify the code to run on the data at your specific site.
 Please be sure to replace all instances of "penn" with your specific site name to streamline the downstream aggregation step.
 Once everything runs, please hit the "Knit" button on top of the `.Rmd` file to create an `.html` file that will automatically be put into [`htmls/`](htmls/).
 
-Finally, please upload your results (in [`results/`](results/) and [`htmls/`](htmls/)) via a [pull request](https://github.com/trang1618/neuro-penn/pulls) or request @ameliatlm to add you as a contributor.
+Finally, please upload your results (in [`results/`](results/) and [`htmls/`](htmls/)) via a [pull request](https://github.com/trang1618/neuro-penn/pulls) or request @trang1618 to add you as a contributor.
 
-If you run into any problem adapting this code to your data, let us (@ameliatlm and @trang1618) know via Slack or [submit an issue](https://github.com/trang1618/neuro-penn/issues/new).
+If you run into any problem adapting this code to your data, let us (@meghutch and @trang1618) know via Slack or [submit an issue](https://github.com/trang1618/neuro-penn/issues/new).
 
 ## Troubleshooting
 ### Where is the `run_fish()` function?
