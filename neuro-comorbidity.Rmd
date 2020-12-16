@@ -17,24 +17,24 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
 ```{r nwu, message=FALSE}
-clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
-demo_raw <- read_csv(
-   '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-                      na = '1900-01-01')
-obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
+# clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
+# demo_raw <- read_csv(
+#    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#                       na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
 ```
 
 ```{r penn, message=FALSE}
-#labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
-# clin_raw <- read_csv(
-#   '../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv',
-#   col_types = list(patient_num = col_character()))
-#demo_raw <- read_csv(
-# '../thrombotic-penn/data/LocalPatientSummary.csv',
-# col_types = list(patient_num = col_character()), na = '1900-01-01')
-#obs_raw <- read_csv(
-# '../thrombotic-penn/data/LocalPatientObservations.csv',
-# col_types = list(patient_num = col_character()))
+labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+clin_raw <- read_csv(
+  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+  col_types = list(patient_num = col_character()))
+demo_raw <- read_csv(
+'../thrombotic-penn/data/LocalPatientSummary.csv',
+col_types = list(patient_num = col_character()), na = '1900-01-01')
+obs_raw <- read_csv(
+'../thrombotic-penn/data/LocalPatientObservations.csv',
+col_types = list(patient_num = col_character()))
 ```
 
 ```{r message=FALSE, warning=FALSE}
@@ -247,9 +247,14 @@ cor(scores_unique$charlson_score, scores_unique$quan_score)
 
 
 ### Correlated variables
+Neuro ICD code specific?
 ```{r}
-lm(charlson_score ~ neuro_post + severe + deceased, # + sex + age_group + race,
-   data = scores_unique) %>% 
+glm(severe ~ neuro_post + charlson_score + sex + age_group + race,
+   data = scores_unique, family = 'binomial') %>% 
+  summary()
+
+glm(deceased ~ neuro_post + charlson_score + sex + age_group + race,
+   data = scores_unique, family = 'binomial') %>% 
   summary()
 ```
 

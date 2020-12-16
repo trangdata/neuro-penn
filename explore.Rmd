@@ -26,10 +26,10 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 
 ## Penn data
 ```{r message=FALSE}
-labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
-clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourseSHIFTED-UPenn.csv')
-demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummarySHIFTED-UPenn.csv', na = '1900-01-01')
-obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations-UPenn.csv')
+# labs_raw <- read_csv('../thrombotic-penn/data/labs_long_thrombo_v2.csv')
+clin_raw <- read_csv('../thrombotic-penn/data/LocalPatientClinicalCourse.csv')
+demo_raw <- read_csv('../thrombotic-penn/data/LocalPatientSummary.csv', na = '1900-01-01')
+obs_raw <- read_csv('../thrombotic-penn/data/LocalPatientObservations.csv')
 loinc <- read_csv('public-data/penn-loinc-map.csv')
 ```
 
@@ -89,10 +89,10 @@ days_count_min_max <- obs_raw %>%
 demo_df <- demo_raw %>% 
   # please comment out the following lines of rename,
   # this is only for Penn-specific data
-  rename('severe_date' = severe_date_shift, 
-         'admission_date' = admission_date_shift,
-         'death_date' = death_date_shift,
-         'last_discharge_date' = last_discharge_date_shift) %>% 
+  # rename('severe_date' = severe_date_shift, 
+  #        'admission_date' = admission_date_shift,
+  #        'death_date' = death_date_shift,
+  #        'last_discharge_date' = last_discharge_date_shift) %>% 
   mutate(time_to_severe = severe_date - admission_date,
          time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
          time_to_death = death_date - admission_date,
