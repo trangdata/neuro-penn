@@ -23,30 +23,30 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
 ```{r nwu, message=FALSE}
-# clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
-# demo_raw <- read_csv(
-#    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-#                       na = '1900-01-01')
-# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
+ clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
+ demo_raw <- read_csv(
+    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+                       na = '1900-01-01')
+ obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
 ```
 
 ```{r penn, message=FALSE}
-clin_raw <-
-  read_csv(
-    '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
-    col_types = list(patient_num = col_character())
-  )
-demo_raw <-
-  read_csv(
-    '../thrombotic-penn/data/LocalPatientSummary.csv',
-    col_types = list(patient_num = col_character()),
-    na = '1900-01-01'
-  )
-obs_raw <-
-  read_csv(
-    '../thrombotic-penn/data/LocalPatientObservations.csv',
-    col_types = list(patient_num = col_character())
-  )
+#clin_raw <-
+#  read_csv(
+#    '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+#    col_types = list(patient_num = col_character())
+#  )
+#demo_raw <-
+#  read_csv(
+#    '../thrombotic-penn/data/LocalPatientSummary.csv',
+#    col_types = list(patient_num = col_character()),
+#    na = '1900-01-01'
+#  )
+#obs_raw <-
+#  read_csv(
+#    '../thrombotic-penn/data/LocalPatientObservations.csv',
+#    col_types = list(patient_num = col_character())
+#  )
 ```
 
 ```{r message=FALSE, warning=FALSE}
@@ -199,8 +199,8 @@ comorb_names <- get_charlson_names()
 comorbs <- as.vector(comorb_names$Abbreviation)
 
 # for elixhauser
-#comorb_names <- get_quan_elix_names()
-#comorbs <- as.vector(comorb_names$Abbreviation)
+comorb_names_elix <- get_quan_elix_names()
+comorbs_elix <- as.vector(comorb_names_elix$Abbreviation)
 
 # t1: earliest time point to consider comorbidities
 # t2: latest time point to consider comorbidities
@@ -208,9 +208,14 @@ comorbs <- as.vector(comorb_names$Abbreviation)
 comorb <- map_charlson_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
                              t1 = -365, 
-                             t2 = -1, 
+                             t2 = -15, 
                              map_type = 'charlson')
 
+comorb_elix <- map_charlson_codes(df = obs_raw,
+                                  comorb_names = comorb_names_elix,
+                                  t1 = -365,
+                                  t2 = -15,
+                                  map_type = 'elixhauser')
 ```
 
 `map_charlson_codes()` outputs a 2-element lists: 
@@ -223,17 +228,42 @@ comorb <- map_charlson_codes(df = obs_raw,
 Comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.
 
 ```{r}
+# charlson
 index_scores <- comorb$index_scores
 mapped_codes_table <- comorb$mapped_codes_table
 comorb_names$Abbreviation <- as.character(comorb_names$Abbreviation)
+
+# elixhauser
+index_scores_elix <- comorb_elix$index_scores
+mapped_codes_table_elix <- comorb_elix$mapped_codes_table
+comorb_names_elix$Abbreviation <- as.character(comorb_names_elix$Abbreviation)
 ```
 
 Here we can determine how many unique patients we have comorbidity index for prior to admission:
 ```{r}
+# charlson
 length(unique(index_scores$patient_num))
+
+# elixhauser
+length(unique(index_scores_elix$patient_num))
 ```
 
-## Comorbidity matrix
+## Comparing Charlson vs Elixhauser
+
+```{r}
+comorb_unique <- full_join(index_scores %>% select(patient_num, charlson_score), 
+                           index_scores_elix %>% select(patient_num, van_walraven_score), 
+                           by = "patient_num")
+
+comorb_unique %>% 
+  ggplot(aes(x = charlson_score, y = van_walraven_score)) +
+  geom_jitter(alpha = 0.2, size = 0.3) +
+  #coord_fixed() +
+  geom_abline(slope = 1, color = 'black', linetype = 'dashed')
+cor(comorb_unique$charlson_score, comorb_unique$van_walraven_score)
+```
+
+## Charlson-Comorbidity matrix
 
 Heatmap of number of patients in each comorbidity type:
 
@@ -247,9 +277,9 @@ index_scores[, pos_comorbs] %>%
 ```
 
 
-## Charlson scores
+## Charlson & Elixhauser Comorbidities
 
-### Distribution
+### Charlson Distribution
 
 The below code will join the comorbidity mappings and the neurological code information, basic demographic and hospital mortality information into one dataframe.
 
@@ -287,20 +317,56 @@ scores_unique %>%
   NULL
 ```
 
+### Elixhauser Distribution
+
+```{r}
+scores_unique_compare <- comorb_unique %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
+  pivot_longer(c(charlson_score, van_walraven_score), "score")
+
+scores_unique_compare %>% 
+  filter(score == "van_walraven_score") %>%
+  ggplot(aes(x = neuro_post, y = value, fill = neuro_post)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  guides(fill = FALSE) +
+  labs(x = NULL) +
+  NULL
+```
+
+### Charlson & Elixhauser
+
+```{r}
+scores_unique_compare %>%
+  ggplot(aes(x = score, y = value, fill = neuro_post)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  #guides(fill = FALSE) +
+  labs(x = NULL) +
+  NULL
+```
 
 
-### Comorbidity table
+### Charlson Comorbidity table
 
 to display the % of patients mapped to each comorbidity.
 The table will include side by side comparison of the comorbidity mappings fo the full patient cohort and neuro patient cohort for those who had prior neuro ICD Codes:
+
 ```{r}
 combined_table1 <- get_table1(
-  index_scores %>% filter(patient_num %in% neuro_pt_post)) %>% 
+  index_scores %>% filter(patient_num %in% neuro_pt_post),
+  comorbidities = comorb_names,
+  comorbidities_map = comorb_names$Abbreviation) %>% 
   rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores), .,
+  left_join(get_table1(index_scores, 
+            comorbidities = comorb_names,
+            comorbidities_map = comorb_names$Abbreviation),
             by = c("Comorbidity", "Abbreviation")) %>% 
   mutate(prop_patients = n_patients/nrow(demo_raw),
-         prop_neuro_pats = n_neuro_pats/nrow(demo_raw))
+         prop_neuro_pats = n_neuro_pats/nrow(demo_raw)) %>%
+  arrange(desc(n_neuro_pats))
 
 write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
 
@@ -308,6 +374,38 @@ datatable(combined_table1) %>%
   formatPercentage(c('prop_patients', 'prop_neuro_pats'))
 
 combined_table1 %>% 
+  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})')) %>%
+  ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
+  geom_col(position = 'dodge') +
+  scale_fill_brewer(palette = 'Dark2', direction = -1,
+                    guide = guide_legend(reverse=TRUE),
+                    label = c('Neuro', 'All')) +
+  labs(y = NULL)
+```
+
+### Elixhauser Comorbidity Table
+
+```{r}
+combined_table1_elix <- get_table1(
+  index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
+  comorbidities = comorb_names_elix,
+  comorbidities_map = comorb_names_elix$Abbreviation) %>% 
+  rename('n_neuro_pats' = n_patients) %>% 
+  left_join(get_table1(index_scores_elix,
+                       comorbidities_map = comorb_names_elix$Abbreviation, 
+                       comorbidities = comorb_names_elix), 
+            by = c("Comorbidity", "Abbreviation")) %>% 
+  mutate(prop_patients = n_patients/nrow(demo_raw),
+         prop_neuro_pats = n_neuro_pats/nrow(demo_raw)) %>%
+  arrange(desc(n_neuro_pats))
+
+write.csv(combined_table1_elix, "results/table1_combined_elix.csv", row.names = FALSE)
+
+datatable(combined_table1_elix) %>% 
+  formatPercentage(c('prop_patients', 'prop_neuro_pats'))
+
+combined_table1_elix %>% 
   pivot_longer(c(n_patients, n_neuro_pats)) %>% 
   mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
   ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
@@ -329,8 +427,8 @@ comorb_long <- scores_unique %>%
 
 comorb_wilcox_func <- function(comorb, df = comorb_long) {
   df <- df %>% filter(name == comorb)
-  neuro <- df %>% filter(neuro_post == 'Neuro')
-  non_neuro <- df %>% filter(neuro_post == 'Non-neuro')
+  neuro <- df %>% filter(neuro_post == 'No neurological condition')
+  non_neuro <- df %>% filter(neuro_post == 'Has neurological condition')
   try(wilcox.test(neuro$charlson_score, non_neuro$charlson_score)$p.value, silent = TRUE)
 }
 
@@ -350,6 +448,10 @@ Do hospitalized COVID-19 patients with neurological conditions have a different 
 
 Resolution: Charlson score vs comorbidity type, Neurological condition (TRUE/FALSE) vs. neurological ICD code?
 
+### Severity, Death
+
+**Charlson**
+
 ```{r}
 severe_reg <- glm(severe ~ neuro_post + charlson_score + sex + age_group + race,
    data = scores_unique, family = 'binomial') %>% 
@@ -359,6 +461,23 @@ deceased_reg <- glm(deceased ~ neuro_post + charlson_score + sex + age_group + r
    data = scores_unique, family = 'binomial') %>% 
   tidy()
 deceased_reg
+```
+
+**Elixhauser**
+
+```{r}
+scores_unique_elix <- scores_unique_compare %>% 
+  filter(score == "van_walraven_score") %>%
+  rename("ElixhauserScore" = value)
+
+severe_reg_elix <- glm(severe ~ neuro_post + ElixhauserScore + sex + age_group + race,
+   data = scores_unique_elix, family = 'binomial') %>% 
+  tidy()
+severe_reg_elix
+deceased_reg_elix <- glm(deceased ~ neuro_post + ElixhauserScore + sex + age_group + race,
+   data = scores_unique_elix %>% filter(score == "van_walraven_score"), family = 'binomial') %>% 
+  tidy()
+deceased_reg_elix
 ```
 
 ### Length of stay
@@ -380,7 +499,11 @@ right_stay <- demo_df %>%
   theme(legend.position = c(0.75, 0.8)) +
   NULL
 plot_grid(left_stay, right_stay)
+```
 
+**Charlson**
+
+```{r}
 n_stay_reg <- lm(n_stay ~ neuro_post + charlson_score + race + sex + age_group, 
    data = scores_unique) %>% 
   tidy()
@@ -388,7 +511,20 @@ n_stay_reg <- lm(n_stay ~ neuro_post + charlson_score + race + sex + age_group,
 n_stay_reg
 ```
 
+**Elixhauser**
+
+```{r}
+n_stay_reg_elix <- lm(n_stay ~ neuro_post + ElixhauserScore + race + sex + age_group, 
+   data = scores_unique_elix) %>%
+  tidy()
+
+n_stay_reg_elix
+```
+### By Neuro Diagnosis
+
 ```{r fig.width=10}
+demo_df$patient_num <- as.numeric(demo_df$patient_num)
+
 nstay_df <- neuro_patients %>% 
   bind_rows(non_neuro_patients) %>% 
   left_join(demo_df, by = 'patient_num') %>% 
@@ -415,12 +551,16 @@ summarised_stay <- nstay_df %>%
             .groups = 'drop')
 ```
 
-### By neuro diagnosis
+## Comorbidities by Diagnosis
 
 Here we will use the `obs_processed` dataframe in contrast to our `scores_unique` dataframe as the former is in long format
+
+**Charlson**
+
 ```{r}
 # scores$patient_num <- as.numeric(as.character(scores$patient_num))
 scores_neuro %>% 
+  distinct(patient_num, concept_code, `Neurological Disease Category`, charlson_score) %>%
   filter(!is.na(charlson_score)) %>% 
   ggplot(aes(y = concept_code, x = charlson_score, fill = concept_code)) + 
   facet_grid(rows = vars(`Neurological Disease Category`),
@@ -436,13 +576,34 @@ scores_neuro %>%
         panel.spacing.y = unit(0, "points"))
 ```
 
+**Elixhauser**
+
+```{r}
+scores_neuro %>% 
+  distinct(patient_num, concept_code, `Neurological Disease Category`) %>%
+  left_join(index_scores_elix %>% select(patient_num, van_walraven_score), by = "patient_num") %>%
+  filter(!is.na(van_walraven_score)) %>% 
+  ggplot(aes(y = concept_code, x = van_walraven_score, fill = concept_code)) + 
+  facet_grid(rows = vars(`Neurological Disease Category`),
+             scales = 'free', space = 'free') +
+  geom_boxplot(alpha = 0.6) + 
+  scale_fill_viridis_d(guide = FALSE, direction = -1) +
+  labs(x = 'Elixhauser score', y = NULL) +
+  NULL +
+  theme(panel.grid = element_blank(),
+        legend.title = element_text(),
+        strip.text.y = element_text(angle = 0),
+        panel.spacing.x = unit(10, "points"),
+        panel.spacing.y = unit(0, "points"))
+```
+
 
 ## Evaluating Timeframe of Comorbidities
 
 Qs: When are these comorbidities getting mapped. Understanding ICD code assignnment can help us prevent confusing complications with comorbidities and vice versa. 
 
 It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated?
-```{r}
+```{r eval=FALSE, include=FALSE}
 # maps codes that occurred anytime 356 days prior to COVID admission
 multi_comorb <- function(x) {
   process_tables(map_charlson_codes(obs_raw, comorb_names, x$t1, x$t2, map_type = 'charlson')[['index_scores']]) %>%
@@ -458,13 +619,16 @@ time_df <- tribble(
   1, 1000, "Any Day After Admission"
 )
 
+# need to figure out better system for this
+comorb_name_df = comorb_names
+
 all_tables <- lapply(time_df %>% split(1:5), multi_comorb) %>%
   do.call(rbind, .) %>% 
   mutate(time_map = fct_relevel(time_map, time_df$label))
 ```
 
 ### Timeline - All Patients
-```{r}
+```{r eval=FALSE, include=FALSE}
 ggplot(all_tables, aes(x = time_map,  y = n_patients, fill = time_map)) +
   geom_bar(stat = "identity") +
   facet_wrap( ~ Abbreviation) +
@@ -542,6 +706,7 @@ unique(neuro_comorb_on_admission$concept_code)
 ```
 
 ```{r}
+# penn
 summarised_stay_penn = summarised_stay
 n_stay_reg_penn = n_stay_reg
 severe_reg_penn = severe_reg
@@ -555,5 +720,20 @@ save(summarised_stay_penn,
      table_one_penn,
      n_stay_reg_penn, 
      file = 'results/penn-results.rda')
+
+# nwu
+summarised_stay_nwu = summarised_stay
+n_stay_reg_nwu = n_stay_reg
+severe_reg_nwu = severe_reg
+deceased_reg_nwu = deceased_reg
+table_one_nwu = table_one
+write.csv(table_one_nwu, file = "results/nwu-table1.csv")
+
+save(summarised_stay_nwu,
+     severe_reg_nwu,
+     deceased_reg_nwu,
+     table_one_nwu,
+     n_stay_reg_nwu, 
+     file = 'results/nwu-results.rda')
 ```
 

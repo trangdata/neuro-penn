@@ -10,7 +10,7 @@ library(tidyverse)
 # example above will map all codes up to a year prior but before admission (admission = day 0)
 # num_days_prior_admission = -365 indicates that we consider all codes up to a year prior to the first COVID admission as comorbidities
 # day_of
-# map_type = 'charlson', 'quan-deyo', 'elixhauser'
+# map_type = 'charlson', 'elixhauser' - where charlson will be scored with quan-deyo
 # truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
 map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
@@ -33,11 +33,13 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
     distinct()
 
   # select map_type for analysis
+  #if (map_type == "charlson") {
+  #  icd10_comorb_map = icd10_map_charlson
+  #  icd9_comorb_map = icd9_map_charlson
+  #}
+
+  # quan prefixes revised charlson & elixhauser mapping
   if (map_type == "charlson") {
-    icd10_comorb_map = icd10_map_charlson
-    icd9_comorb_map = icd9_map_charlson
-  }
-  if (map_type == "quan-deyo") {
     icd10_comorb_map = icd10_map_quan_deyo
     icd9_comorb_map = icd9_map_quan_deyo
   }
@@ -99,7 +101,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
     )
 
   ## Calculate Index Scores
-  if (map_type == 'charlson' | map_type == 'quan-deyo') {
+  if (map_type == 'charlson') {
     charlson_score <- charlson_from_comorbid(
       icd_map,
       visit_name = "patient_num",
@@ -108,16 +110,6 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
     ) %>%
       data.frame(charlson_score = .) %>%
       tibble::rownames_to_column("patient_num")
-
-    quan_score <- charlson_from_comorbid(
-      icd_map,
-      visit_name = "patient_num",
-      scoring_system = "quan",
-      hierarchy = TRUE
-    ) %>%
-      data.frame(quan_score = .) %>%
-      tibble::rownames_to_column("patient_num")
-
   }
 
   # need to check If I've done this correctly - it seems to be that their are different versions
@@ -138,20 +130,13 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
       tibble::rownames_to_column("patient_num")
   }
 
-  if(map_type == 'charlson' | map_type == 'quan-deyo') {
+  if(map_type == 'charlson') {
     index_scores <- icd_map %>%
       full_join(charlson_score, by = "patient_num") %>%
-      full_join(quan_score, by = "patient_num") %>%
-      # calculate difference between Charlson and Quan scores
-      mutate(score_diff = charlson_score - quan_score,
-             abs_score_diff = abs(score_diff)) %>%
       arrange(desc(charlson_score)) %>%
       select(
         patient_num,
         charlson_score,
-        quan_score,
-        score_diff,
-        abs_score_diff,
         everything()
       )
   } else {
@@ -226,21 +211,24 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
 # where df takes in the matrix for the initial mapping
 
 get_table1 <- function(
-  df, comorbidities = comorb_names$Abbreviation
-){
+  df,
+  comorbidities = comorb_name_df,
+  comorbidities_map = comorbidities$Abbreviation #comorbidities = comorb_names$Abbreviation
+)
+  {
   df %>%
-    select(all_of(comorbidities)) %>%
+    select(all_of(comorbidities_map)) %>%
     colSums() %>%
     data.frame(n_patients = .) %>%
     rownames_to_column("Abbreviation") %>%
-    right_join(comorb_names, ., by = "Abbreviation")
+    right_join(comorbidities, ., by = "Abbreviation")
 }
 
 process_tables <- function(index_scores) {
   get_table1(
     index_scores %>% filter(patient_num %in% neuro_pt_post)) %>%
     rename('n_neuro_pats' = n_patients) %>%
-    left_join(get_table1(index_scores), .,
+    left_join(get_table1(index_scores),
               by = c("Comorbidity", "Abbreviation"))
 }
 
