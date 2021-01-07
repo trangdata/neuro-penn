@@ -23,30 +23,34 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```
 
 ```{r nwu, message=FALSE}
- clin_raw <- read_csv('../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv')
- demo_raw <- read_csv(
-    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-                       na = '1900-01-01')
- obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv')
+# clin_raw <- read_csv(
+#   '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+#   col_types = list(patient_num = col_character()))
+# demo_raw <- read_csv(
+#   '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#   col_types = list(patient_num = col_character()),
+#   na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+#                     col_types = list(patient_num = col_character()))
 ```
 
 ```{r penn, message=FALSE}
-#clin_raw <-
-#  read_csv(
-#    '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
-#    col_types = list(patient_num = col_character())
-#  )
-#demo_raw <-
-#  read_csv(
-#    '../thrombotic-penn/data/LocalPatientSummary.csv',
-#    col_types = list(patient_num = col_character()),
-#    na = '1900-01-01'
-#  )
-#obs_raw <-
-#  read_csv(
-#    '../thrombotic-penn/data/LocalPatientObservations.csv',
-#    col_types = list(patient_num = col_character())
-#  )
+clin_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+   col_types = list(patient_num = col_character())
+ )
+demo_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientSummary.csv',
+   col_types = list(patient_num = col_character()),
+   na = '1900-01-01'
+ )
+obs_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientObservations.csv',
+   col_types = list(patient_num = col_character())
+ )
 ```
 
 ```{r message=FALSE, warning=FALSE}
@@ -257,9 +261,8 @@ comorb_unique <- full_join(index_scores %>% select(patient_num, charlson_score),
 
 comorb_unique %>% 
   ggplot(aes(x = charlson_score, y = van_walraven_score)) +
-  geom_jitter(alpha = 0.2, size = 0.3) +
-  #coord_fixed() +
-  geom_abline(slope = 1, color = 'black', linetype = 'dashed')
+  geom_smooth(method = 'lm', color = 'darkorange', alpha = 0.1) +
+  geom_point(alpha = 0.2, size = 0.3)
 cor(comorb_unique$charlson_score, comorb_unique$van_walraven_score)
 ```
 
@@ -284,9 +287,6 @@ index_scores[, pos_comorbs] %>%
 The below code will join the comorbidity mappings and the neurological code information, basic demographic and hospital mortality information into one dataframe.
 
 ```{r}
-demo_df$patient_num <- as.character(demo_df$patient_num)
-obs_raw$patient_num <- as.character(obs_raw$patient_num)
-
 scores_unique <- index_scores %>% 
   left_join(demo_df, by = 'patient_num') %>% 
   mutate(severe = as.factor(severe) %>% 
@@ -308,13 +308,6 @@ scores_neuro <- obs_raw %>%
            fct_reorder(charlson_score)) %>% 
   {.}
 
-scores_unique %>% 
-  ggplot(aes(x = neuro_post, y = charlson_score, fill = neuro_post)) + 
-  geom_boxplot(outlier.colour = NA) + 
-  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
-  guides(fill = FALSE) +
-  labs(x = NULL) +
-  NULL
 ```
 
 ### Elixhauser Distribution
@@ -326,14 +319,6 @@ scores_unique_compare <- comorb_unique %>%
            fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
   pivot_longer(c(charlson_score, van_walraven_score), "score")
 
-scores_unique_compare %>% 
-  filter(score == "van_walraven_score") %>%
-  ggplot(aes(x = neuro_post, y = value, fill = neuro_post)) + 
-  geom_boxplot(outlier.colour = NA) + 
-  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
-  guides(fill = FALSE) +
-  labs(x = NULL) +
-  NULL
 ```
 
 ### Charlson & Elixhauser
@@ -341,8 +326,8 @@ scores_unique_compare %>%
 ```{r}
 scores_unique_compare %>%
   ggplot(aes(x = score, y = value, fill = neuro_post)) + 
-  geom_boxplot(outlier.colour = NA) + 
-  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  geom_boxplot(outlier.colour = NA) +
+  # geom_jitter(alpha = 0.2, width = 0.1, size = 0.6) +
   #guides(fill = FALSE) +
   labs(x = NULL) +
   NULL
@@ -523,7 +508,7 @@ n_stay_reg_elix
 ### By Neuro Diagnosis
 
 ```{r fig.width=10}
-demo_df$patient_num <- as.numeric(demo_df$patient_num)
+# demo_df$patient_num <- as.numeric(demo_df$patient_num)
 
 nstay_df <- neuro_patients %>% 
   bind_rows(non_neuro_patients) %>% 
@@ -722,18 +707,18 @@ save(summarised_stay_penn,
      file = 'results/penn-results.rda')
 
 # nwu
-summarised_stay_nwu = summarised_stay
-n_stay_reg_nwu = n_stay_reg
-severe_reg_nwu = severe_reg
-deceased_reg_nwu = deceased_reg
-table_one_nwu = table_one
-write.csv(table_one_nwu, file = "results/nwu-table1.csv")
-
-save(summarised_stay_nwu,
-     severe_reg_nwu,
-     deceased_reg_nwu,
-     table_one_nwu,
-     n_stay_reg_nwu, 
-     file = 'results/nwu-results.rda')
+# summarised_stay_nwu = summarised_stay
+# n_stay_reg_nwu = n_stay_reg
+# severe_reg_nwu = severe_reg
+# deceased_reg_nwu = deceased_reg
+# table_one_nwu = table_one
+# write.csv(table_one_nwu, file = "results/nwu-table1.csv")
+# 
+# save(summarised_stay_nwu,
+#      severe_reg_nwu,
+#      deceased_reg_nwu,
+#      table_one_nwu,
+#      n_stay_reg_nwu, 
+#      file = 'results/nwu-results.rda')
 ```
 
