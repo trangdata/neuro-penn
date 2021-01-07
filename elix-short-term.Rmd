@@ -1,0 +1,619 @@
+---
+title: "Neurological condition analysis"
+output: html_document
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "htmls") })
+---
+
+```{r setup, message=FALSE, warning=FALSE, results='hide'}
+my_packages <- c('tidyverse', 'readxl', 'DT', 'rcartocolor', 'gghighlight', 
+                 'cowplot', 'broom', 'devtools', 'tableone')
+
+existing_pkgs <- installed.packages()[,"Package"]
+to_install <- setdiff(my_packages, existing_pkgs)
+if (length(to_install)) install.packages(to_install)
+if (!'icd' %in% existing_pkgs) devtools::install_github('jackwasey/icd')
+
+lapply(my_packages, library, character.only = TRUE)
+theme_set(theme_bw() + 
+            theme(legend.title = element_blank(),
+                  panel.grid.minor = element_blank()))
+for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
+```
+
+```{r nwu, message=FALSE}
+# clin_raw <- read_csv(
+#   '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+#   col_types = list(patient_num = col_character()))
+# demo_raw <- read_csv(
+#   '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#   col_types = list(patient_num = col_character()),
+#   na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+#                     col_types = list(patient_num = col_character()))
+```
+
+```{r penn, message=FALSE}
+clin_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+   col_types = list(patient_num = col_character())
+ )
+demo_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientSummary.csv',
+   col_types = list(patient_num = col_character()),
+   na = '1900-01-01'
+ )
+obs_raw <-
+ read_csv(
+   '../thrombotic-penn/data/LocalPatientObservations.csv',
+   col_types = list(patient_num = col_character())
+ )
+```
+
+```{r message=FALSE, warning=FALSE}
+loinc <- read_csv('public-data/loinc-map.csv')
+neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
+  rename('icd' = `ICD-10`)
+```
+
+## Data pre-processing
+
+In this initial analysis, we will consider neuro patients as those with a neuro code on the day **of** or **anytime after** their first day of admission.
+These patients developed neurological conditions after COVID-19 related admission.
+
+Only examining ICD-10 for now.
+
+*Note: We will need to discuss whether we want to include codes assigned on the day of admission as comorbidities.*
+
+
+```{r}
+neuro_patients <- obs_raw %>% 
+  filter(
+    days_since_admission >= 0,
+    concept_code %in% neuro_icds_10$icd) %>% 
+  distinct(patient_num, concept_code)
+
+neuro_pt_post <- unique(neuro_patients$patient_num)
+  
+non_neuro_patients <- data.frame(
+  patient_num = setdiff(demo_raw$patient_num, neuro_pt_post)) %>% 
+  mutate(concept_code = 'NN')
+
+readmissions <- clin_raw %>% 
+  group_by(patient_num) %>% 
+  mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
+  ungroup() %>% 
+  filter(delta_hospitalized != 0,
+         in_hospital == 1) %>%
+  add_count(patient_num, name = 'n_readmissions') %>%
+  # add_count(patient_num, name = 'status_changes') %>% 
+  # filter(status_changes > 1) %>% 
+  # mutate(n_readmissions = (status_changes - 1)/2) %>% 
+  arrange(desc(n_readmissions))
+
+length(unique(readmissions$patient_num))
+
+re_admin_stats <- readmissions %>% 
+  select(patient_num, n_readmissions) %>% 
+  distinct() %>% 
+  count(n_readmissions)
+
+re_admin_stats
+
+re_admin_stats %>% 
+  ggplot() +
+  geom_col(aes(x = n_readmissions, y = n))
+```
+
+Length of stay is estimated based on the last day of having an "observation".
+
+```{r}
+days_count_min_max <- obs_raw %>%
+  group_by(patient_num) %>%
+  summarise(
+    distinct_days = n_distinct(days_since_admission),
+    min_hos = min(days_since_admission),
+    # n_stay = max(days_since_admission),
+    .groups = 'drop'
+  )
+
+demo_df <- demo_raw %>%
+  mutate(time_to_severe = severe_date - admission_date,
+         time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
+         time_to_death = death_date - admission_date,
+         time_to_death = ifelse(time_to_death < 0, NA, time_to_death),
+         readmitted = patient_num %in% readmissions$patient_num,
+         neuro_post = patient_num %in% neuro_pt_post %>% 
+           as.factor() %>% 
+           fct_recode(`Has neurological condition` = "TRUE",
+                      `No neurological condition` = "FALSE"),
+         Survival = as.factor(deceased) %>% 
+           fct_recode(Alive = "0", Deceased = "1"),
+         sex = as.factor(sex),
+         race = as.factor(race),
+         age_group = as.factor(age_group),
+         Severity = as.factor(severe) %>% 
+           fct_recode(Severe = "1", `Non-severe` = "0"),
+         n_stay = as.numeric(last_discharge_date - admission_date,
+                             units="days")) %>% 
+  left_join(days_count_min_max, by = 'patient_num')
+```
+
+## Demographics (Table 1)
+
+```{r}
+formatted_demo <- demo_df %>% 
+  select(Sex = sex, `Age group` = age_group, 
+         Race = race, Severity, Survival, 
+         `Time to severity onset (days)` = time_to_severe, 
+         `Time to death (days)` = time_to_death, 
+         Readmitted = readmitted, neuro_post)
+
+## export table 1 to csv
+table_one_vars <- setdiff(colnames(formatted_demo), 'neuro_post')
+demo_table <- tableone::CreateTableOne(
+  data = formatted_demo,
+  vars = table_one_vars,
+  strata= "neuro_post")
+
+table_one <- print(
+  demo_table,
+  showAllLevels = TRUE,
+  formatOptions = list(big.mark = ","),
+  printToggle = FALSE
+)
+
+## print table 1 html
+table1::table1(
+  ~ Sex + `Age group` + Race + Severity + Survival + Readmitted +
+    `Time to severity onset (days)` + `Time to death (days)` 
+  | neuro_post,
+  data = formatted_demo,
+  overall = "Total",
+  export = "results/demographics.csv")
+```
+
+## Comorbidity
+
+```{r}
+n_patients <- nrow(demo_raw)
+obs_raw <- obs_raw %>% 
+  filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"))
+```
+
+New variable `neuro_post` to indicate whether the patient developed neurological conditions after COVID-19 related admission.
+
+Q: What about on the day of? (==0)
+
+```{r}
+table(demo_df$neuro_post)
+```
+
+## Map comorbidities
+
+List of comorbidity abbreviations for reference purposes,
+then run the `map_charlson_codes()` function:
+
+```{r}
+# for elixhauser
+comorb_names_elix <- get_quan_elix_names()
+comorbs_elix <- as.vector(comorb_names_elix$Abbreviation)
+
+# t1: earliest time point to consider comorbidities
+# t2: latest time point to consider comorbidities
+# example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
+
+comorb_elix <- map_charlson_codes(df = obs_raw,
+                                  comorb_names = comorb_names_elix,
+                                  t1 = -365,
+                                  t2 = -15,
+                                  map_type = 'elixhauser')
+```
+
+`map_charlson_codes()` outputs a 2-element lists: 
+
+<!-- 1- Dataframe indicating which comorbidities were mapped -->
+
+1- Dataframe of the Charlson comorbidity index scores
+
+2- Dataframe of the specific mapped codes arranged by frequency.
+Comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.
+
+```{r}
+# elixhauser
+index_scores_elix <- comorb_elix$index_scores
+mapped_codes_table_elix <- comorb_elix$mapped_codes_table
+comorb_names_elix$Abbreviation <- as.character(comorb_names_elix$Abbreviation)
+```
+
+Here we can determine how many unique patients we have comorbidity index for prior to admission:
+```{r}
+# elixhauser
+length(unique(index_scores_elix$patient_num))
+```
+
+## Comparing Charlson vs Elixhauser
+
+```{r}
+comorb_unique <- 
+  # full_join(
+  # index_scores %>% select(patient_num, charlson_score), 
+                           index_scores_elix %>% select(patient_num, van_walraven_score)
+                           # by = "patient_num")
+
+```
+
+## Elixhauser comorbidity matrix
+
+Heatmap of number of patients in each comorbidity type:
+
+```{r}
+n_comorbs <- colSums(index_scores_elix[, comorbs_elix])
+pos_comorbs <- names(n_comorbs[n_comorbs > 0])
+
+index_scores_elix[, pos_comorbs] %>% 
+  cor() %>% 
+  heatmap(cexRow = 0.5, cexCol = 0.5)
+```
+
+### Elixhauser Distribution
+
+```{r}
+# scores_unique_compare <- comorb_unique %>% 
+#   left_join(demo_df, by = 'patient_num') %>% 
+#   mutate(severe = as.factor(severe) %>% 
+#            fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
+#   pivot_longer(c(charlson_score, van_walraven_score), "score")
+
+comorb_unique %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
+  # filter(score == "van_walraven_score") %>%
+  ggplot(aes(x = neuro_post, y = van_walraven_score, fill = neuro_post)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  guides(fill = FALSE) +
+  labs(x = NULL) +
+  NULL
+```
+
+
+### Elixhauser Comorbidity Table
+
+```{r}
+
+# demo_df$patient_num <- as.character(demo_df$patient_num)
+# obs_raw$patient_num <- as.character(obs_raw$patient_num)
+
+scores_unique <- index_scores_elix %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0'))
+
+scores_neuro <- obs_raw %>% 
+  # 1 patient can have different code but each only counted once
+  distinct(patient_num, concept_code) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  left_join(scores_unique, by = 'patient_num') %>% 
+  filter(!is.na(van_walraven_score)) %>%
+  mutate(concept_code = case_when(
+           is.na(`Neurological Disease Category`) ~ 'NN',
+           TRUE ~ concept_code) %>% 
+           as.factor() %>% 
+           fct_reorder(- van_walraven_score),
+         `Neurological Disease Category` =
+           as.factor(`Neurological Disease Category`) %>% 
+           fct_reorder(van_walraven_score)) %>% 
+  {.}
+
+combined_table1_elix <- get_table1(
+  index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
+  comorbidities = comorb_names_elix,
+  comorbidities_map = comorb_names_elix$Abbreviation) %>% 
+  rename('n_neuro_pats' = n_patients) %>% 
+  left_join(get_table1(index_scores_elix,
+                       comorbidities_map = comorb_names_elix$Abbreviation, 
+                       comorbidities = comorb_names_elix), 
+            by = c("Comorbidity", "Abbreviation")) %>% 
+  mutate(prop_patients = n_patients/nrow(demo_raw),
+         prop_neuro_pats = n_neuro_pats/nrow(demo_raw)) %>%
+  arrange(desc(n_neuro_pats))
+
+
+datatable(combined_table1_elix) %>% 
+  formatPercentage(c('prop_patients', 'prop_neuro_pats'))
+
+combined_table1_elix %>% 
+  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
+  ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
+  geom_col(position = 'dodge') +
+  scale_fill_brewer(palette = 'Dark2', direction = -1,
+                    guide = guide_legend(reverse=TRUE),
+                    label = c('Neuro', 'All')) +
+  labs(y = NULL)
+```
+
+## Charlson score for each comorbidity type (neuro vs non-neuro)
+
+```{r}
+# Neuro vs non-neuro patients
+comorb_long <- scores_unique %>%
+  select(patient_num, neuro_post, van_walraven_score, any_of(pos_comorbs)) %>%
+  pivot_longer(any_of(comorbs_elix)) %>%
+  filter(value == 1)
+
+comorb_wilcox_func <- function(comorb, df = comorb_long) {
+  df <- df %>% filter(name == comorb)
+  neuro <- df %>% filter(neuro_post == 'No neurological condition')
+  non_neuro <- df %>% filter(neuro_post == 'Has neurological condition')
+  try(wilcox.test(neuro$van_walraven_score, non_neuro$van_walraven_score)$p.value, silent = TRUE)
+}
+
+wilcox_res <- pos_comorbs %>%
+  sapply(comorb_wilcox_func, df = comorb_long) %>%
+  data.frame(p_value = .) %>%
+  cbind(pos_comorbs) %>%
+  filter(!(grepl('Error', p_value))) %>%
+  arrange(p_value)
+
+wilcox_res
+```
+
+## Short term outcomes
+
+Do hospitalized COVID-19 patients with neurological conditions have a different short-term natural history (hospital days, death, severity, readmission) from those without?
+
+Resolution: Charlson score vs comorbidity type, Neurological condition (TRUE/FALSE) vs. neurological ICD code?
+
+### Severity, Death
+
+**Elixhauser**
+
+```{r}
+scores_unique_elix <- scores_unique %>% 
+  # filter(score == "van_walraven_score") %>%
+  # rename("ElixhauserScore" = value) %>% 
+  {.}
+
+severe_reg_elix <- glm(severe ~ neuro_post + van_walraven_score + sex + age_group + race,
+   data = scores_unique_elix, family = 'binomial') %>% 
+  tidy()
+severe_reg_elix
+deceased_reg_elix <- glm(deceased ~ neuro_post + van_walraven_score + sex + age_group + race,
+   data = scores_unique_elix, family = 'binomial') %>% 
+  tidy()
+deceased_reg_elix
+```
+
+### Length of stay
+
+```{r fig.width=10}
+left_stay <- demo_df %>% 
+  ggplot(aes(x = sex, y = n_stay, fill = neuro_post)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = 'Dark2', guide = FALSE) +
+  labs(x = NULL , subtitle = 'All patients') +
+  NULL
+
+right_stay <- demo_df %>% 
+  filter(!readmitted, !deceased) %>% 
+  ggplot(aes(x = sex, y = n_stay, fill = neuro_post)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = 'Dark2') +
+  labs(x = NULL , subtitle =  'Patients who survived, no readmission') +
+  theme(legend.position = c(0.75, 0.8)) +
+  NULL
+plot_grid(left_stay, right_stay)
+```
+
+**Elixhauser**
+
+```{r}
+n_stay_reg_elix <- lm(n_stay ~ neuro_post + van_walraven_score + race + sex + age_group, 
+   data = scores_unique_elix) %>%
+  tidy()
+
+n_stay_reg_elix
+```
+### By Neuro Diagnosis
+
+```{r fig.width=10}
+nstay_df <- neuro_patients %>% 
+  bind_rows(non_neuro_patients) %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  # mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  mutate(full_icd = case_when(
+    concept_code == 'NN' ~ 'No neurological condition',
+    TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
+             as.factor() %>% fct_reorder(n_stay)) 
+
+nstay_df %>%
+  ggplot(aes(y = full_icd, x = n_stay, fill = full_icd)) +
+  labs(y = NULL) +
+  geom_boxplot() + 
+  scale_fill_viridis_d(guide = FALSE) +
+  gghighlight(concept_code != 'NN') +
+  NULL
+
+summarised_stay <- nstay_df %>% 
+  group_by(concept_code) %>% 
+  summarise(mean_stay = mean(n_stay),
+            sd_stay = sd(n_stay),
+            n_patients = n(),
+            .groups = 'drop')
+```
+
+## Comorbidities by Diagnosis
+
+Here we will use the `obs_processed` dataframe in contrast to our `scores_unique` dataframe as the former is in long format
+
+**Elixhauser**
+
+```{r}
+scores_neuro %>% 
+  distinct(patient_num, concept_code, `Neurological Disease Category`) %>%
+  left_join(index_scores_elix %>% select(patient_num, van_walraven_score), by = "patient_num") %>%
+  filter(!is.na(van_walraven_score)) %>% 
+  ggplot(aes(y = concept_code, x = van_walraven_score, fill = concept_code)) + 
+  facet_grid(rows = vars(`Neurological Disease Category`),
+             scales = 'free', space = 'free') +
+  geom_boxplot(alpha = 0.6) + 
+  scale_fill_viridis_d(guide = FALSE, direction = -1) +
+  labs(x = 'Elixhauser score', y = NULL) +
+  NULL +
+  theme(panel.grid = element_blank(),
+        legend.title = element_text(),
+        strip.text.y = element_text(angle = 0),
+        panel.spacing.x = unit(10, "points"),
+        panel.spacing.y = unit(0, "points"))
+```
+
+
+## Evaluating Timeframe of Comorbidities
+
+Qs: When are these comorbidities getting mapped. Understanding ICD code assignnment can help us prevent confusing complications with comorbidities and vice versa. 
+
+It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated?
+```{r eval=FALSE, include=FALSE}
+# maps codes that occurred anytime 356 days prior to COVID admission
+multi_comorb <- function(x, ...) {
+  process_tables(
+    map_charlson_codes(obs_raw, comorb_names_elix, x$t1, x$t2, 
+                       map_type = 'elixhauser')[['index_scores']],
+    ...) %>%
+    mutate(time_map = x$label) 
+}
+
+time_df <- tribble(
+  ~ t1, ~ t2, ~ label,
+  -365, -1, "1 to 365 days prior admission",
+  -365, -15, "15 to 365 days prior admission",
+  -14, -1, "14 to 1 days prior admission",
+  0, 0, "Only Day of Admission",
+  1, 1000, "Any Day After Admission"
+)
+
+all_tables <- lapply(time_df %>% split(1:5), multi_comorb, 
+                     comorbidities = comorb_names_elix) %>%
+  do.call(rbind, .) %>% 
+  mutate(time_map = fct_relevel(time_map, time_df$label))
+```
+
+### Timeline - All Patients
+```{r eval=FALSE, include=FALSE}
+ggplot(all_tables, aes(x = time_map,  y = n_patients, fill = time_map)) +
+  geom_bar(stat = "identity") +
+  facet_wrap( ~ Abbreviation) +
+  scale_fill_carto_d() +
+  theme(
+    legend.position = c(0.8, 0.12),
+    legend.key.height = unit(3, 'mm'),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
+
+## First occurence of a comorbidity
+
+The below figure plots the first time a patient had an ICD code map to that specific comorbidity.
+
+Perhaps could go a conservative route and only include comorbidities if there was a previous record of it? However, each comorbidity category can contain multiple different types of diseases. So perhaps could be problematic.
+```{r}
+obs_first <- obs_raw %>% 
+  group_by(patient_num) %>% 
+  merge(mapped_codes_table_elix, by = "concept_code") %>%
+  arrange(days_since_admission) %>%
+  group_by(patient_num, Abbreviation) %>%
+  mutate(first_occurence = min(days_since_admission),
+         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
+  ungroup()  %>%
+  filter(first_occurence_indicator == 1)
+
+ggplot(obs_first, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'slateblue') +
+   facet_wrap(~Abbreviation) 
+```
+
+## Neuro Patients timeline of first neuro diagnosis
+
+If this is helpful, we may want to move to the explore-neuro.rmd file.
+```{r}
+post_adm_neuro_pats <- obs_raw %>% 
+  filter(days_since_admission >= 0) %>% 
+  right_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  group_by(patient_num, concept_code) %>%
+  mutate(first_occurence = min(days_since_admission),
+         first_occurence_indicator = if_else(first_occurence == days_since_admission, 1, 0)) %>%
+  ungroup()  %>%
+  filter(first_occurence_indicator == 1)
+
+ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'slateblue') +
+   facet_wrap(~concept_code) 
+
+ggplot(post_adm_neuro_pats, aes(x = days_since_admission)) + 
+  geom_histogram(fill = 'tomato') +
+   facet_wrap(~`Neurological Disease Category`) 
+```
+
+## Additional Notes:
+
+Neuro Codes: G04, G45, G46, I60, 161, 162, and 167 will map to comorbidities.
+An important consideration is that we don't want to confuse comorbidities for complications of hospital stay/COVID-19
+
+The below will assess how many on these neuro comorbidity codes occurred on the day of admission and how many neuro codes in general are on the day of admission.
+
+*Note: This is just for data exploration right now, we are going to initially just assume that any codes prior to the COVID-19 admission are comorbidities*
+```{r}
+neuro_comorb_codes <- c("G04", "G45", "G46",  # paralysis codes
+                        "I60", "161", "162", "167") # stroke codes
+
+neuro_comorb_on_admission <- obs_raw %>%
+  filter(days_since_admission == 0) %>%
+  filter(concept_code %in% neuro_comorb_codes) %>%
+  select(patient_num, concept_code) %>%
+  distinct()
+unique(neuro_comorb_on_admission$concept_code)
+```
+
+```{r penn-save-results}
+# penn
+summarised_stay_penn = summarised_stay
+n_stay_reg_penn = n_stay_reg_elix
+severe_reg_penn = severe_reg_elix
+deceased_reg_penn = deceased_reg_elix
+table_one_penn = table_one
+
+save(summarised_stay_penn,
+     severe_reg_penn,
+     deceased_reg_penn,
+     table_one_penn,
+     n_stay_reg_penn, 
+     file = 'results/penn-results.rda')
+
+write.csv(table_one_penn, file = "results/penn-table1.csv")
+write.csv(combined_table1_elix, "results/penn_combined_elix.csv", row.names = FALSE)
+```
+
+```{r nwu-save-results}
+# summarised_stay_nwu = summarised_stay
+# n_stay_reg_nwu = n_stay_reg
+# severe_reg_nwu = severe_reg
+# deceased_reg_nwu = deceased_reg
+# table_one_nwu = table_one
+# write.csv(table_one_nwu, file = "results/nwu-table1.csv")
+# 
+# save(summarised_stay_nwu,
+#      severe_reg_nwu,
+#      deceased_reg_nwu,
+#      table_one_nwu,
+#      n_stay_reg_nwu, 
+#      file = 'results/nwu-results.rda')
+```
+
