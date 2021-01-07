@@ -19,7 +19,7 @@ library(tableone)
 theme_set(theme_bw() + 
             theme(legend.title = element_blank(),
                   panel.grid.minor = element_blank()))
-for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
+for (r_file in list.files('../R/', full.names = TRUE)) source(r_file)
 ```
 
 ```{r nwu, message=FALSE}
@@ -37,25 +37,25 @@ for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
 ```{r penn, message=FALSE}
 clin_raw <-
  read_csv(
-   '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+   '../../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
    col_types = list(patient_num = col_character())
  )
 demo_raw <-
  read_csv(
-   '../thrombotic-penn/data/LocalPatientSummary.csv',
+   '../../thrombotic-penn/data/LocalPatientSummary.csv',
    col_types = list(patient_num = col_character()),
    na = '1900-01-01'
  )
 obs_raw <-
  read_csv(
-   '../thrombotic-penn/data/LocalPatientObservations.csv',
+   '../../thrombotic-penn/data/LocalPatientObservations.csv',
    col_types = list(patient_num = col_character())
  )
 ```
 
 ```{r message=FALSE, warning=FALSE}
-loinc <- read_csv('public-data/loinc-map.csv')
-neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
+loinc <- read_csv('../public-data/loinc-map.csv')
+neuro_icds_10 <- read_excel('../public-data/2020-09-10_neuro-icd10.xlsx') %>% 
   rename('icd' = `ICD-10`)
 ```
 
@@ -353,7 +353,7 @@ combined_table1 <- get_table1(
          prop_neuro_pats = n_neuro_pats/nrow(demo_raw)) %>%
   arrange(desc(n_neuro_pats))
 
-write.csv(combined_table1, "results/table1_combined.csv", row.names = FALSE)
+# write.csv(combined_table1, "../results/table1_combined.csv", row.names = FALSE)
 
 datatable(combined_table1) %>% 
   formatPercentage(c('prop_patients', 'prop_neuro_pats'))
@@ -385,7 +385,7 @@ combined_table1_elix <- get_table1(
          prop_neuro_pats = n_neuro_pats/nrow(demo_raw)) %>%
   arrange(desc(n_neuro_pats))
 
-write.csv(combined_table1_elix, "results/table1_combined_elix.csv", row.names = FALSE)
+# write.csv(combined_table1_elix, "../results/table1_combined_elix.csv", row.names = FALSE)
 
 datatable(combined_table1_elix) %>% 
   formatPercentage(c('prop_patients', 'prop_neuro_pats'))
@@ -697,14 +697,15 @@ n_stay_reg_penn = n_stay_reg
 severe_reg_penn = severe_reg
 deceased_reg_penn = deceased_reg
 table_one_penn = table_one
-write.csv(table_one_penn, file = "results/penn-table1.csv")
+# write.csv(table_one_penn, file = "../results/penn-table1.csv")
+# save(summarised_stay_penn,
+#      severe_reg_penn,
+#      deceased_reg_penn,
+#      table_one_penn,
+#      n_stay_reg_penn, 
+#      file = 'results/penn-results.rda')
 
-save(summarised_stay_penn,
-     severe_reg_penn,
-     deceased_reg_penn,
-     table_one_penn,
-     n_stay_reg_penn, 
-     file = 'results/penn-results.rda')
+
 
 # nwu
 # summarised_stay_nwu = summarised_stay
