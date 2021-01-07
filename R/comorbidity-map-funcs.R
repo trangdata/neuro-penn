@@ -213,7 +213,7 @@ map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TR
 get_table1 <- function(
   df,
   comorbidities = comorb_name_df,
-  comorbidities_map = comorbidities$Abbreviation #comorbidities = comorb_names$Abbreviation
+  comorbidities_map = comorbidities$Abbreviation
 )
   {
   df %>%
@@ -224,11 +224,10 @@ get_table1 <- function(
     right_join(comorbidities, ., by = "Abbreviation")
 }
 
-process_tables <- function(index_scores) {
-  get_table1(
-    index_scores %>% filter(patient_num %in% neuro_pt_post)) %>%
+process_tables <- function(index_scores, ...) {
+  get_table1(index_scores %>% filter(patient_num %in% neuro_pt_post), ...) %>%
     rename('n_neuro_pats' = n_patients) %>%
-    left_join(get_table1(index_scores),
+    left_join(get_table1(index_scores, ...),
               by = c("Comorbidity", "Abbreviation"))
 }
 
