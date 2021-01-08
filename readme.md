@@ -4,7 +4,7 @@ This repository performs missing data analysis on data at different sites and re
 
 ## Which script should I run?
 
-**Short answer: `short-time.Rmd`**
+**Short answer: `elix-short-time.Rmd`**
 
 The best way to run this analysis is to clone this repository on your local machine
 (please ensure you're in a directory where you want the repository to be downloaded):
@@ -15,15 +15,15 @@ Then, go inside the repository:
 
 ```cd neuro-penn```
 
-and make a copy of `short-time.Rmd`, name it with your site name, for example:
+and make a copy of `elix-short-time.Rmd`, name it with your site name, for example:
 
-```cp short-time.Rmd short-time-penn.Rmd```
+```cp elix-short-time.Rmd elix-short-time-penn.Rmd```
 
 Then, open the R project
 
 ```open neuro-penn.Rproj```
 
-and navigate to the newly created file (e.g. `short-time-penn.Rmd`) to modify the code to run on the data at your specific site.
+and navigate to the newly created file (e.g. `elix-short-time-penn.Rmd`) to modify the code to run on the data at your specific site.
 Please be sure to replace all instances of "penn" with your specific site name to streamline the downstream aggregation step.
 Once everything runs, please hit the "Knit" button on top of the `.Rmd` file to create an `.html` file that will automatically be put into [`htmls/`](htmls/).
 

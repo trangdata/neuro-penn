@@ -100,7 +100,7 @@ length(neuro_pt_post)
 ## Map comorbidities
 
 List of comorbidity abbreviations for reference purposes,
-then run the `map_charlson_codes()` function:
+then run the `map_char_elix_codes()` function:
 
 ```{r}
 # for charlson or quan-deyo
@@ -114,7 +114,7 @@ comorbs <- as.vector(comorb_names$Abbreviation)
 # t1: earliest time point to consider comorbidities
 # t2: latest time point to consider comorbidities
 # example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
-comorb <- map_charlson_codes(df = obs_raw, 
+comorb <- map_char_elix_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
                              t1 = -365, 
                              t2 = -1, 
@@ -122,7 +122,7 @@ comorb <- map_charlson_codes(df = obs_raw,
 
 ```
 
-`map_charlson_codes()` outputs a 2-element lists: 
+`map_char_elix_codes()` outputs a 2-element lists: 
 
 <!-- 1- Dataframe indicating which comorbidities were mapped -->
 
@@ -335,15 +335,15 @@ Qs: When are these comorbidities getting mapped. Understanding ICD code assignnm
 It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated?
 ```{r}
 # maps codes that occurred anytime 356 days prior to COVID admission
-comorb365 <- map_charlson_codes(obs_raw, comorb_names, map_type = 'charlson', -365, -1) 
+comorb365 <- map_char_elix_codes(obs_raw, comorb_names, map_type = 'charlson', -365, -1) 
 # maps codes that occurred at least 15 days to a year prior to admission
-comorb365_15 <- map_charlson_codes(obs_raw, comorb_names, map_type = 'charlson', -365, -15) 
+comorb365_15 <- map_char_elix_codes(obs_raw, comorb_names, map_type = 'charlson', -365, -15) 
 # maps codes that occurred at least 14 days to 1 day prior to admission
-comorb14_1 <- map_charlson_codes(obs_raw, comorb_names, map_type = 'charlson', -14, -1) 
+comorb14_1 <- map_char_elix_codes(obs_raw, comorb_names, map_type = 'charlson', -14, -1) 
 # map only day of admission
-comorb_dayOf <- map_charlson_codes(obs_raw, comorb_names, map_type = 'charlson', 0, 0) 
+comorb_dayOf <- map_char_elix_codes(obs_raw, comorb_names, map_type = 'charlson', 0, 0) 
 # consider codes only codes after admission
-comorb_After <- map_charlson_codes(obs_raw, comorb_names, map_type = 'charlson', 1, 1000) 
+comorb_After <- map_char_elix_codes(obs_raw, comorb_names, map_type = 'charlson', 1, 1000) 
 
 ## Abstract individual index_scores and compute table1
 # time_frame is text to provide a label that will indicate the timeframe of comorb mapping

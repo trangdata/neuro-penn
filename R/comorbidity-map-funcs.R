@@ -13,7 +13,7 @@ library(tidyverse)
 # map_type = 'charlson', 'elixhauser' - where charlson will be scored with quan-deyo
 # truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
-map_charlson_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
+map_char_elix_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
 
   df <- df %>%
     filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),

@@ -195,7 +195,7 @@ table(demo_df$neuro_post)
 ## Map comorbidities
 
 List of comorbidity abbreviations for reference purposes,
-then run the `map_charlson_codes()` function:
+then run the `map_char_elix_codes()` function:
 
 ```{r}
 # for charlson or quan-deyo
@@ -209,20 +209,20 @@ comorbs_elix <- as.vector(comorb_names_elix$Abbreviation)
 # t1: earliest time point to consider comorbidities
 # t2: latest time point to consider comorbidities
 # example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
-comorb <- map_charlson_codes(df = obs_raw, 
+comorb <- map_char_elix_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
                              t1 = -365, 
                              t2 = -15, 
                              map_type = 'charlson')
 
-comorb_elix <- map_charlson_codes(df = obs_raw,
+comorb_elix <- map_char_elix_codes(df = obs_raw,
                                   comorb_names = comorb_names_elix,
                                   t1 = -365,
                                   t2 = -15,
                                   map_type = 'elixhauser')
 ```
 
-`map_charlson_codes()` outputs a 2-element lists: 
+`map_char_elix_codes()` outputs a 2-element lists: 
 
 <!-- 1- Dataframe indicating which comorbidities were mapped -->
 
@@ -591,7 +591,7 @@ It would be helpful to review the literature as well, what did the original deve
 ```{r eval=FALSE, include=FALSE}
 # maps codes that occurred anytime 356 days prior to COVID admission
 multi_comorb <- function(x) {
-  process_tables(map_charlson_codes(obs_raw, comorb_names, x$t1, x$t2, map_type = 'charlson')[['index_scores']]) %>%
+  process_tables(map_char_elix_codes(obs_raw, comorb_names, x$t1, x$t2, map_type = 'charlson')[['index_scores']]) %>%
     mutate(time_map = x$label) 
 }
 

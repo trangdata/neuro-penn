@@ -3387,7 +3387,7 @@ obs_raw &lt;- obs_raw %&gt;%
 </div>
 <div id="map-comorbidities" class="section level2">
 <h2>Map comorbidities</h2>
-<p>List of comorbidity abbreviations for reference purposes, then run the <code>map_charlson_codes()</code> function:</p>
+<p>List of comorbidity abbreviations for reference purposes, then run the <code>map_char_elix_codes()</code> function:</p>
 <pre class="r"><code># for charlson or quan-deyo
 comorb_names &lt;- get_charlson_names()
 comorbs &lt;- as.vector(comorb_names$Abbreviation)
@@ -3399,18 +3399,18 @@ comorbs_elix &lt;- as.vector(comorb_names_elix$Abbreviation)
 # t1: earliest time point to consider comorbidities
 # t2: latest time point to consider comorbidities
 # example &lt;- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
-comorb &lt;- map_charlson_codes(df = obs_raw, 
+comorb &lt;- map_char_elix_codes(df = obs_raw, 
                              comorb_names = comorb_names, 
                              t1 = -365, 
                              t2 = -15, 
                              map_type = &#39;charlson&#39;)
 
-comorb_elix &lt;- map_charlson_codes(df = obs_raw,
+comorb_elix &lt;- map_char_elix_codes(df = obs_raw,
                                   comorb_names = comorb_names_elix,
                                   t1 = -365,
                                   t2 = -15,
                                   map_type = &#39;elixhauser&#39;)</code></pre>
-<p><code>map_charlson_codes()</code> outputs a 2-element lists:</p>
+<p><code>map_char_elix_codes()</code> outputs a 2-element lists:</p>
 <!-- 1- Dataframe indicating which comorbidities were mapped -->
 <p>1- Dataframe of the Charlson comorbidity index scores</p>
 <p>2- Dataframe of the specific mapped codes arranged by frequency. Comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.</p>
