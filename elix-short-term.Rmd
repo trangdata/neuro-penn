@@ -25,7 +25,7 @@ set.seed(1)
 ```{r penn, message=FALSE}
 mysite = 'penn'
 mask_thres = 10 # count mask threshold
-blur_abs = 3 # absolute max of blurring range
+blur_abs = 0 # absolute max of blurring range
 
 clin_raw <-
  read_csv(
@@ -47,6 +47,10 @@ obs_raw <-
 
 
 ```{r nwu, message=FALSE}
+# mysite = 'nwu'
+# mask_thres = 0 # count mask threshold
+# blur_abs = 0 # absolute max of blurring range
+
 # clin_raw <- read_csv(
 #   '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
 #   col_types = list(patient_num = col_character()))
@@ -246,7 +250,6 @@ Heatmap of number of patients in each comorbidity type:
 ```{r}
 n_comorbs <- colSums(index_scores_elix[, comorbs_elix])
 pos_comorbs <- names(n_comorbs[n_comorbs > 0])
-
 index_scores_elix[, pos_comorbs] %>% 
   cor() %>% 
   heatmap(cexRow = 0.5, cexCol = 0.5)
@@ -274,11 +277,7 @@ concat <- function(x, y){
   paste0(x, ' (', round(y, 3)*100, '%)')
 }
 
-scores_unique <- index_scores_elix %>% 
-  left_join(demo_df, by = 'patient_num') %>% 
-  # mutate(severe = as.factor(severe) %>% 
-  #          fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
-  {.}
+scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
 
 scores_neuro <- obs_raw %>% 
   # 1 patient can have different code but each only counted once
@@ -367,103 +366,34 @@ n_stay_reg_elix <- lm(n_stay ~ neuro_post + elixhauser_score + race + sex + age_
 n_stay_reg_elix
 ```
 
-
-## Comorbidities by Diagnosis
-
-Here we will use the `obs_processed` dataframe in contrast to our `scores_unique` dataframe as the former is in long format
-
 **Elixhauser**
-
-```{r}
-scores_neuro %>% 
-  distinct(patient_num, concept_code, `Neurological Disease Category`) %>%
-  left_join(index_scores_elix %>% select(patient_num, elixhauser_score), by = "patient_num") %>%
-  filter(!is.na(elixhauser_score)) %>% 
-  ggplot(aes(y = concept_code, x = elixhauser_score, fill = concept_code)) + 
-  facet_grid(rows = vars(`Neurological Disease Category`),
-             scales = 'free', space = 'free') +
-  geom_boxplot(alpha = 0.6) + 
-  scale_fill_viridis_d(guide = FALSE, direction = -1) +
-  labs(x = 'Elixhauser score', y = NULL) +
-  NULL +
-  theme(panel.grid = element_blank(),
-        legend.title = element_text(),
-        strip.text.y = element_text(angle = 0),
-        panel.spacing.x = unit(10, "points"),
-        panel.spacing.y = unit(0, "points"))
-```
-
-
-## Evaluating Timeframe of Comorbidities
-
-Qs: When are these comorbidities getting mapped. Understanding ICD code assignnment can help us prevent confusing complications with comorbidities and vice versa. 
-
-It would be helpful to review the literature as well, what did the original developers of the comorbidity indexes do? How were they validated?
-```{r eval=FALSE, include=FALSE}
-# maps codes that occurred anytime 356 days prior to COVID admission
-multi_comorb <- function(x, ...) {
-  process_tables(
-    map_char_elix_codes(obs_raw, comorb_names_elix, x$t1, x$t2, 
-                       map_type = 'elixhauser')[['index_scores']],
-    ...) %>%
-    mutate(time_map = x$label) 
-}
-
-time_df <- tribble(
-  ~ t1, ~ t2, ~ label,
-  -365, -1, "1 to 365 days prior admission",
-  -365, -15, "15 to 365 days prior admission",
-  -14, -1, "14 to 1 days prior admission",
-  0, 0, "Only Day of Admission",
-  1, 1000, "Any Day After Admission"
-)
-
-all_tables <- lapply(time_df %>% split(1:5), multi_comorb, 
-                     comorbidities = comorb_names_elix) %>%
-  do.call(rbind, .) %>% 
-  mutate(time_map = fct_relevel(time_map, time_df$label))
-```
-
-### Timeline - All Patients
-```{r eval=FALSE, include=FALSE}
-ggplot(all_tables, aes(x = time_map,  y = n_patients, fill = time_map)) +
-  geom_bar(stat = "identity") +
-  facet_wrap( ~ Abbreviation) +
-  scale_fill_carto_d() +
-  theme(
-    legend.position = c(0.8, 0.12),
-    legend.key.height = unit(3, 'mm'),
-    axis.title.x = element_blank(),
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank()
-  )
-```
 
 ```{r}
 nstay_df <- neuro_patients %>% 
   bind_rows(non_neuro_patients) %>% 
   left_join(demo_df, by = 'patient_num') %>%
-  # left_join(scores_unique, by = 'patient_num') %>%
+  left_join(index_scores_elix, by = 'patient_num') %>%
   # mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
   left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
   mutate(full_icd = case_when(
     concept_code == 'NN' ~ 'No neurological condition',
     TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
              as.factor() %>% fct_reorder(n_stay)) 
-  
 
 summarised_stay <- nstay_df %>%
   group_by(concept_code) %>% 
-  summarise(mean_stay = mean(n_stay, na.rm = TRUE),
-            median_stay = median(n_stay, na.rm = TRUE),
-            sd_stay = sd(n_stay, na.rm = TRUE),
+  summarise(mean_stay = mean(n_stay),
+            median_stay = median(n_stay),
+            sd_stay = sd(n_stay),
+            mean_elix = mean(elixhauser_score, na.rm = TRUE),
+            median_elix = median(elixhauser_score, na.rm = TRUE),
+            sd_elix = sd(elixhauser_score, na.rm = TRUE),
             n_patients = n(),
             n_patients = ifelse(n_patients < mask_thres, 0, n_patients + blur_vec),
-            prop_deceased = mean(deceased, na.rm = TRUE),
-            prop_severe = mean(severe, na.rm = TRUE),
+            prop_deceased = mean(deceased),
+            prop_severe = mean(severe),
             .groups = 'drop')
 
-summarised_stay
 ```
 
 ```{r save-results}
