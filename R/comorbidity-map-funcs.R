@@ -247,3 +247,91 @@ first_3 <- function(x) {
   # retain first 3 characters of the ICD code
   substr(x, 1, 3) %>% unique()
 }
+
+severity_stats <- function(df, neuro_cond) {
+  severity <- df %>%
+    select(neuro_post, `Time to severity onset (days)`) %>%
+    group_by(neuro_post) %>%
+    summarise(median = median(`Time to severity onset (days)`, na.rm = TRUE),
+              min = min(`Time to severity onset (days)`, na.rm = TRUE),
+              max = max(`Time to severity onset (days)`, na.rm = TRUE),
+              mean = round(mean(`Time to severity onset (days)`, na.rm = TRUE), 1),
+              sd = round(sd(`Time to severity onset (days)`, na.rm = TRUE), 1),
+              missing = sum(is.na(`Time to severity onset (days)`))) %>%
+    t() %>%
+    as.data.frame.matrix()
+  row_sum_names <- row.names(severity)[-1]
+  severity <- severity %>%
+    mutate_all(as.character)
+
+  colnames(severity) <- severity[1,]
+  severity <- severity[-1,]
+  row.names(severity) <- row_sum_names
+
+  severity <- severity %>%
+    t() %>%
+    merge(., t(neuro_cond), by = "row.names")
+
+  indx <- sapply(severity, is.factor)
+  severity[indx] <- lapply(severity[indx], function(x) as.numeric(as.character(x)))
+
+  severity <- severity %>%
+    mutate(`% missing` = missing/Total*100,
+           `% missing` = round(`% missing`, 1)) %>%
+    select(-Total) %>%
+    t()
+
+  colnames(severity) <- severity[1,]
+  severity <- severity[-1,]
+  severity_demo_table <- severity %>%
+    as.data.frame() %>%
+    select(`No neurological condition`, `Has neurological condition`)
+
+  return(severity_demo_table)
+
+  }
+
+death_stats <- function(df, neuro_cond) {
+
+  death <- df %>%
+  select(neuro_post, `Time to death (days)`) %>%
+  group_by(neuro_post) %>%
+  summarise(median = median(`Time to death (days)`, na.rm = TRUE),
+            min = min(`Time to death (days)`, na.rm = TRUE),
+            max = max(`Time to death (days)`, na.rm = TRUE),
+            mean = round(mean(`Time to death (days)`, na.rm = TRUE), 1),
+            sd = round(sd(`Time to death (days)`, na.rm = TRUE), 1),
+            missing = sum(is.na(`Time to death (days)`))) %>%
+  t() %>%
+  as.data.frame.matrix()
+row_sum_names <- row.names(death)[-1]
+death <- death %>%
+  mutate_all(as.character)
+
+colnames(death) <- death[1,]
+death <- death[-1,]
+row.names(death) <- row_sum_names
+
+death <- death %>%
+  t() %>%
+  merge(., t(neuro_cond), by = "row.names")
+
+indx <- sapply(death, is.factor)
+death[indx] <- lapply(death[indx], function(x) as.numeric(as.character(x)))
+
+death <- death %>%
+  mutate(`% missing` = missing/Total*100,
+         `% missing` = round(`% missing`, 1)) %>%
+  select(-Total) %>%
+  t()
+
+colnames(death) <- death[1,]
+death <- death[-1,]
+death_demo_table <- death %>%
+  as.data.frame() %>%
+  select(`No neurological condition`, `Has neurological condition`)
+
+return(death_demo_table)
+
+}
+

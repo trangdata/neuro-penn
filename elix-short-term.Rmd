@@ -175,7 +175,8 @@ for(i in vars_to_obfs) {
     blur_vec <- matrix(sample(seq(-blur_abs, blur_abs),
                                 nrow_var*length(table_mat),
                                 replace = TRUE), ncol = ncol_var)
-
+    
+    # choose random variable to indicate which column of our blur_vec should be used to blur the data
     ran_col_to_blur <- sample(1:ncol_var, 1)
     
     table_mat <- table_mat %>%
@@ -190,14 +191,15 @@ for(i in vars_to_obfs) {
     sum_all <- sum_no_neuro + sum_neuro
     
     table_mat <- table_mat %>%
-      mutate(`% No neurological condtion` = round(`No neurological condition`/sum_no_neuro*100, 1),
-             `% Has neurological condition` = round(`Has neurological condition`/sum_neuro*100, 1))
+      mutate(`% No neurological condition` = round(`No neurological condition`/sum_no_neuro*100, 1),
+             `% Has neurological condition` = round(`Has neurological condition`/sum_neuro*100, 1),
+             `% Total` = round(Total/sum_all*100, 1))
     
     colnames(table_mat)[1] <- paste(i)
     
     table_mat <- table_mat %>%
-      select(paste(i), `No neurological condition`, `% No neurological condtion`, 
-             `Has neurological condition`, `% Has neurological condition`, Total) %>%
+      select(paste(i), `No neurological condition`, `% No neurological condition`, 
+             `Has neurological condition`, `% Has neurological condition`, Total, `% Total`) %>%
       remove_rownames %>% column_to_rownames(var=paste(i))
 
     obfs_list[[i]] <- table_mat
@@ -205,8 +207,26 @@ for(i in vars_to_obfs) {
 
 demo_table <- do.call(rbind.data.frame, obfs_list)
 
-datatable(demo_table)
+## Add time to severity and time to death
+neuro_cond <- t(as.data.frame(table(formatted_demo$neuro_post)))
+neuro_cond <- as.data.frame.matrix(neuro_cond)  %>% mutate_all(as.character)
+row.names(neuro_cond) <- NULL
+colnames(neuro_cond) <- neuro_cond[1,]
+neuro_cond <- neuro_cond[-1,]
+row.names(neuro_cond) <- "Total"
+  
+# severity                
+severity_demo_table <- severity_stats(formatted_demo, neuro_cond)
 
+# death 
+death_demo_table <- death_stats(formatted_demo, neuro_cond)
+
+# print demographics table
+datatable(demo_table)
+# time to severity
+datatable(severity_demo_table)
+# time to 
+datatable(death_demo_table)
 
 ## export table 1 to csv
 #table_one_vars <- setdiff(colnames(formatted_demo), 'neuro_post')
@@ -450,6 +470,8 @@ summarised_stay <- nstay_df %>%
 ```{r save-results}
 list_results = list(
   demo_table = demo_table,
+  severity_demo_table = severity_demo_table,
+  death_demo_table = death_demo_table,
   summarised_stay = summarised_stay, 
   n_stay_reg_elix = n_stay_reg_elix, 
   severe_reg_elix = severe_reg_elix, 
