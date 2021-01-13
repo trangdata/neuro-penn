@@ -22,10 +22,10 @@ for (r_file in list.files('R', full.names = TRUE)) source(r_file)
 ```
 
 ```{r penn, message=FALSE}
-set.seed(1)
+# set.seed(1)
 mysite = 'penn'
 mask_thres = 10 # count mask threshold
-blur_abs = 3 # absolute max of blurring range
+blur_abs = 0 # absolute max of blurring range
 clin_raw <-
 read_csv(
   '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
@@ -263,7 +263,6 @@ comorb_unique %>%
 ### Elixhauser Comorbidity Table
 
 ```{r}
-
 scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
 
 scores_neuro <- obs_raw %>% 
