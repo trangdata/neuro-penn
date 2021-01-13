@@ -259,59 +259,45 @@ concat_mean <- function(mea, s, acc = 0){
   paste0(round(mea, acc), ' (', round(s, acc), ')')
 }
 
-severity_stats <- function(df, neuro_cond) {
-  severity <- df %>%
-    select(neuro_post, `Time to severity onset (days)`) %>%
+severity_stats <- function(df, neuro_cond, ...) {
+  # summary statistics for severity status
+  # count values are obfuscated
+  df %>%
+    select(neuro_post, time_severe = `Time to severity onset (days)`) %>%
     group_by(neuro_post) %>%
-    summarise(median = median(`Time to severity onset (days)`, na.rm = TRUE),
-              min = min(`Time to severity onset (days)`, na.rm = TRUE),
-              max = max(`Time to severity onset (days)`, na.rm = TRUE),
-              mean = round(mean(`Time to severity onset (days)`, na.rm = TRUE), 1),
-              sd = round(sd(`Time to severity onset (days)`, na.rm = TRUE), 1),
-              missing = sum(is.na(`Time to severity onset (days)`))) %>%
-    t() %>%
-    as.data.frame.matrix()
-  row_sum_names <- row.names(severity)[-1]
-  severity <- severity %>%
-    mutate_all(as.character)
-
-  colnames(severity) <- severity[1,]
-  severity <- severity[-1,]
-  row.names(severity) <- row_sum_names
-
-  severity <- severity %>%
-    t() %>%
-    merge(., t(neuro_cond), by = "row.names")
-
-  indx <- sapply(severity, is.factor)
-  severity[indx] <- lapply(severity[indx], function(x) as.numeric(as.character(x)))
-
-  severity <- severity %>%
-    mutate(`% missing` = missing/Total*100,
-           `% missing` = round(`% missing`, 1)) %>%
-    select(-Total) %>%
-    t()
-
-  colnames(severity) <- severity[1,]
-  severity <- severity[-1,]
-  severity_demo_table <- severity %>%
-    as.data.frame() %>%
-    select(`No neurological condition`, `Has neurological condition`)
-
-  return(severity_demo_table)
-
-  }
+    summarise(median_time = median(time_severe, na.rm = TRUE),
+              min_time = min(time_severe, na.rm = TRUE),
+              max_time = max(time_severe, na.rm = TRUE),
+              mean_time = mean(time_severe, na.rm = TRUE),
+              sd_time = sd(time_severe, na.rm = TRUE),
+              non_severe = sum(is.na(time_severe)),
+              Total = n(),
+              .groups = 'drop') %>%
+    blur_it(c('non_severe', 'Total'), ...) %>%
+    mutate(severe = Total - non_severe) %>%
+    transmute(
+      neuro_post,
+      Nonsevere = concat(non_severe, non_severe/Total),
+      Severe = concat(severe, severe/Total),
+      `Median time to severity onset [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
+      `Mean time to severity onset (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
+    pivot_longer(-neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value) %>%
+    column_to_rownames('name')
+}
 
 survival_stats <- function(df, neuro_cond, ...) {
+  # summary statistics for survival status
+  # count values are obfuscated
   df %>%
-    select(neuro_post, `Time to death (days)`) %>%
+    select(neuro_post, time_death = `Time to death (days)`) %>%
     group_by(neuro_post) %>%
-    summarise(median_time = median(`Time to death (days)`, na.rm = TRUE),
-              min_time = min(`Time to death (days)`, na.rm = TRUE),
-              max_time = max(`Time to death (days)`, na.rm = TRUE),
-              mean_time = mean(`Time to death (days)`, na.rm = TRUE),
-              sd_time = sd(`Time to death (days)`, na.rm = TRUE),
-              alive = sum(is.na(`Time to death (days)`)),
+    summarise(median_time = median(time_death, na.rm = TRUE),
+              min_time = min(time_death, na.rm = TRUE),
+              max_time = max(time_death, na.rm = TRUE),
+              mean_time = mean(time_death, na.rm = TRUE),
+              sd_time = sd(time_death, na.rm = TRUE),
+              alive = sum(is.na(time_death)),
               Total = n(),
               .groups = 'drop') %>%
     blur_it(c('alive', 'Total'), ...) %>%
@@ -325,7 +311,6 @@ survival_stats <- function(df, neuro_cond, ...) {
     pivot_longer(-neuro_post) %>%
     pivot_wider(names_from = neuro_post, values_from = value) %>%
     column_to_rownames('name')
-
 }
 
 blur_it <- function(df, vars, blur_abs, mask_thres){
