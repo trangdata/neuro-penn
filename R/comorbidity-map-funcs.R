@@ -12,6 +12,9 @@ library(tidyverse)
 # day_of
 # map_type = 'charlson', 'elixhauser' - where charlson will be scored with quan-deyo
 # truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
+concat <- function(x, y){
+  paste0(x, ' (', round(y, 3)*100, '%)')
+}
 
 map_char_elix_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
 
@@ -248,6 +251,14 @@ first_3 <- function(x) {
   substr(x, 1, 3) %>% unique()
 }
 
+concat_median <- function(med, mi, ma){
+  paste0(med, ' [', mi, ', ', ma, ']')
+}
+
+concat_mean <- function(mea, s, acc = 0){
+  paste0(round(mea, acc), ' (', round(s, acc), ')')
+}
+
 severity_stats <- function(df, neuro_cond) {
   severity <- df %>%
     select(neuro_post, `Time to severity onset (days)`) %>%
@@ -291,47 +302,43 @@ severity_stats <- function(df, neuro_cond) {
 
   }
 
-death_stats <- function(df, neuro_cond) {
-
-  death <- df %>%
-  select(neuro_post, `Time to death (days)`) %>%
-  group_by(neuro_post) %>%
-  summarise(median = median(`Time to death (days)`, na.rm = TRUE),
-            min = min(`Time to death (days)`, na.rm = TRUE),
-            max = max(`Time to death (days)`, na.rm = TRUE),
-            mean = round(mean(`Time to death (days)`, na.rm = TRUE), 1),
-            sd = round(sd(`Time to death (days)`, na.rm = TRUE), 1),
-            missing = sum(is.na(`Time to death (days)`))) %>%
-  t() %>%
-  as.data.frame.matrix()
-row_sum_names <- row.names(death)[-1]
-death <- death %>%
-  mutate_all(as.character)
-
-colnames(death) <- death[1,]
-death <- death[-1,]
-row.names(death) <- row_sum_names
-
-death <- death %>%
-  t() %>%
-  merge(., t(neuro_cond), by = "row.names")
-
-indx <- sapply(death, is.factor)
-death[indx] <- lapply(death[indx], function(x) as.numeric(as.character(x)))
-
-death <- death %>%
-  mutate(`% missing` = missing/Total*100,
-         `% missing` = round(`% missing`, 1)) %>%
-  select(-Total) %>%
-  t()
-
-colnames(death) <- death[1,]
-death <- death[-1,]
-death_demo_table <- death %>%
-  as.data.frame() %>%
-  select(`No neurological condition`, `Has neurological condition`)
-
-return(death_demo_table)
+survival_stats <- function(df, neuro_cond, ...) {
+  df %>%
+    select(neuro_post, `Time to death (days)`) %>%
+    group_by(neuro_post) %>%
+    summarise(median_time = median(`Time to death (days)`, na.rm = TRUE),
+              min_time = min(`Time to death (days)`, na.rm = TRUE),
+              max_time = max(`Time to death (days)`, na.rm = TRUE),
+              mean_time = mean(`Time to death (days)`, na.rm = TRUE),
+              sd_time = sd(`Time to death (days)`, na.rm = TRUE),
+              alive = sum(is.na(`Time to death (days)`)),
+              Total = n(),
+              .groups = 'drop') %>%
+    blur_it(c('alive', 'Total'), ...) %>%
+    mutate(deceased = Total - alive) %>%
+    transmute(
+      neuro_post,
+      Alive = concat(alive, alive/Total),
+      Deceased = concat(deceased, deceased/Total),
+      `Median time to death [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
+      `Mean time to death (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
+    pivot_longer(-neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value) %>%
+    column_to_rownames('name')
 
 }
 
+blur_it <- function(df, vars, blur_abs, mask_thres){
+  # Obfuscate count values.
+  # If blurring range is +/-3, or blur_abs = 3,
+  # the count receive a small addition of a random number from -3 to 3.
+  # If a count is smaller than mask_thres, set that count to 0.
+
+  for (var in vars){
+    var <- sym(var)
+    blur_vec <- sample(seq(- blur_abs, blur_abs), nrow(df), replace = TRUE)
+    df <- df %>%
+      mutate(!!var := ifelse(!!var < mask_thres, 0, !!var  + blur_vec))
+  }
+  df
+}
