@@ -21,6 +21,10 @@ theme_set(theme_bw() +
 for (r_file in list.files('R', full.names = TRUE)) source(r_file)
 ```
 
+## Data read-in
+
+Change this following chunk of code for your site-specific data:
+
 ```{r penn, message=FALSE}
 # set.seed(1)
 mysite = 'penn'
@@ -71,12 +75,11 @@ neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>%
 ## Data pre-processing
 
 In this initial analysis, we will consider neuro patients as those with a neuro code on the day **of** or **anytime after** their first day of admission.
-These patients developed neurological conditions after COVID-19 related admission.
+These patients developed neurological conditions after a COVID-19 related admission.
 
-Only examining ICD-10 for now.
+We're only examining ICD-10 for now.
 
-*Note: We will need to discuss whether we want to include codes assigned on the day of admission as comorbidities.*
-
+*Note: comorbidities are estimated with ICD codes recorded from 365-15 days prior to the day of admission.*
 
 ```{r}
 neuro_patients <- obs_raw %>% 
@@ -98,23 +101,21 @@ readmissions <- clin_raw %>%
   filter(delta_hospitalized != 0,
          in_hospital == 1) %>%
   add_count(patient_num, name = 'n_readmissions') %>%
-  arrange(desc(n_readmissions))
-
-length(unique(readmissions$patient_num))
-
-re_admin_stats <- readmissions %>% 
+  arrange(desc(n_readmissions)) %>% 
   select(patient_num, n_readmissions) %>% 
-  distinct() %>% 
-  count(n_readmissions)
+  distinct()
 
-re_admin_stats
+nrow(readmissions)
 
-re_admin_stats %>% 
+readmissions %>% 
+  count(n_readmissions) %>% 
+  blur_it('n', blur_abs, mask_thres) %>% 
   ggplot() +
   geom_col(aes(x = n_readmissions, y = n))
 ```
 
-Length of stay is estimated based on the last day of having an "observation".
+
+*Note*: Length of stay is calculated as the period length from admission date to the last discharge date.
 
 ```{r}
 days_count_min_max <- obs_raw %>%
@@ -122,7 +123,6 @@ days_count_min_max <- obs_raw %>%
   summarise(
     distinct_days = n_distinct(days_since_admission),
     min_hos = min(days_since_admission),
-    # n_stay = max(days_since_admission),
     .groups = 'drop'
   )
 
@@ -160,17 +160,27 @@ demo_obfus_table <- lapply(vars_to_obfs, get_stats) %>%
 datatable(select(demo_obfus_table, variable, contains('pres')))
 ```
 
-### Time to severity onset
-```{r}
-# severity                
-severity_obfus_table <- severity_stats(demo_df, blur_abs, mask_thres)
-datatable(severity_obfus_table)
-```
+### Other descriptive stats
 
-### Time to death
+Length of stay, number of readmissions, time to severity onset, time to death
+
 ```{r}
+nstay_obfus_table <- nstay_stats(demo_df, blur_abs, mask_thres)
+severity_obfus_table <- severity_stats(demo_df, blur_abs, mask_thres)
 survival_obfus_table <- survival_stats(demo_df, blur_abs, mask_thres)
-datatable(survival_obfus_table)
+readmission_obfus_table <- demo_df %>% 
+  left_join(readmissions, by = 'patient_num') %>% 
+  replace_na(list(n_readmissions = 0)) %>% 
+  readmission_stats(blur_abs, mask_thres)
+
+other_obfus_table <-
+  bind_rows(
+    nstay_obfus_table,
+    readmission_obfus_table,
+    severity_obfus_table,
+    survival_obfus_table
+  )
+datatable(other_obfus_table, options = list(pageLength = 12))
 ```
 
 ## Comorbidity
@@ -228,9 +238,8 @@ comorb_names_elix$Abbreviation <- as.character(comorb_names_elix$Abbreviation)
 
 Here we can determine how many unique patients we have comorbidity index for prior to admission:
 ```{r}
-# elixhauser
-length(unique(index_scores_elix$patient_num))
 comorb_unique <- select(index_scores_elix, patient_num, elixhauser_score)
+length(unique(index_scores_elix$patient_num))
 ```
 
 ## Elixhauser comorbidity matrix
@@ -240,9 +249,8 @@ Heatmap of number of patients in each comorbidity type:
 ```{r}
 n_comorbs <- colSums(index_scores_elix[, comorbs_elix])
 pos_comorbs <- names(n_comorbs[n_comorbs > 0])
-index_scores_elix[, pos_comorbs] %>% 
-  cor() %>% 
-  heatmap(cexRow = 0.5, cexCol = 0.5)
+elix_mat <- cor(index_scores_elix[, pos_comorbs])
+heatmap(elix_mat, cexRow = 0.5, cexCol = 0.5)
 ```
 
 ### Elixhauser Distribution
@@ -281,7 +289,7 @@ scores_neuro <- obs_raw %>%
            fct_reorder(elixhauser_score)) %>% 
   {.}
 
-combined_table1_elix <- get_table1(
+elix_obfus_table1 <- get_table1(
   index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
   comorbidities = comorb_names_elix,
   comorbidities_map = comorb_names_elix$Abbreviation) %>% 
@@ -289,11 +297,8 @@ combined_table1_elix <- get_table1(
   left_join(get_table1(index_scores_elix,
                        comorbidities_map = comorb_names_elix$Abbreviation, 
                        comorbidities = comorb_names_elix), 
-            by = c("Comorbidity", "Abbreviation"))
-
-## apply blurring and masking
-
-combined_table1_elix <- combined_table1_elix %>%
+            by = c("Comorbidity", "Abbreviation")) %>%
+  ## apply blurring and masking
   blur_it(c('n_patients', 'n_neuro_pats'), blur_abs, mask_thres) %>% 
   mutate(
     n_non_neuro = n_patients - n_neuro_pats,
@@ -303,7 +308,7 @@ combined_table1_elix <- combined_table1_elix %>%
   ) %>%
   arrange(desc(n_neuro_pats))
 
-combined_table1_elix %>% 
+elix_obfus_table1 %>% 
   transmute(
     Comorbidity, Abbreviation,
     neuro_cond = concat(n_neuro_pats, prop_neuro_pats),
@@ -311,7 +316,7 @@ combined_table1_elix %>%
     Total = concat(n_patients, prop_patients)) %>% 
   datatable() 
 
-combined_table1_elix %>% 
+elix_obfus_table1 %>% 
   pivot_longer(c(n_patients, n_neuro_pats)) %>% 
   mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
   ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
@@ -361,7 +366,7 @@ nstay_df <- neuro_patients %>%
     TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
              as.factor() %>% fct_reorder(n_stay)) 
 
-summarised_stay <- nstay_df %>%
+summarised_obfus_icd <- nstay_df %>%
   group_by(concept_code) %>% 
   summarise(mean_stay = mean(n_stay),
             median_stay = median(n_stay),
@@ -380,23 +385,18 @@ summarised_stay <- nstay_df %>%
 ```{r save-results}
 list_results = list(
   demo_table = demo_obfus_table,
-  severity_demo_table = severity_obfus_table,
-  survival_demo_table = survival_obfus_table,
-  summarised_stay = summarised_stay, 
+  other_obfus_table = other_obfus_table,
+  elix_obfus_table1 = elix_obfus_table1,
+  summarised_obfus_icd = summarised_obfus_icd,
   n_stay_reg_elix = n_stay_reg_elix, 
   severe_reg_elix = severe_reg_elix, 
-  deceased_reg_elix = deceased_reg_elix, 
-  combined_table1_elix = combined_table1_elix)
+  deceased_reg_elix = deceased_reg_elix)
 
-penn_results <- lapply(list_results, function(x) mutate(x, site = mysite))
+list_results <- lapply(list_results, function(x) mutate(x, site = mysite))
+list_results <- c(list_results, elix_mat = elix_mat)
 
 site_results <- paste0(mysite, '_results')
 assign(site_results, list_results)
 save(list = site_results,
      file = paste0('results/', mysite, '-results.rda'))
-
-# write.csv(table_one, file = 'results/penn-table1.csv')
-# write.csv(combined_table1_elix,
-#           paste0('results/', mysite, '-combined-elix.csv'), 
-#           row.names = FALSE)
 ```

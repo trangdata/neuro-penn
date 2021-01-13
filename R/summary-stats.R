@@ -66,6 +66,52 @@ survival_stats <- function(df, ...) {
     column_to_rownames('name')
 }
 
+nstay_stats <- function(df, ...) {
+  # summary statistics for length of stay
+  # count values are obfuscated
+
+  df %>%
+    select(neuro_post, n_stay) %>%
+    group_by(neuro_post) %>%
+    summarise(median_time = median(n_stay, na.rm = TRUE),
+              min_time = min(n_stay, na.rm = TRUE),
+              max_time = max(n_stay, na.rm = TRUE),
+              mean_time = mean(n_stay, na.rm = TRUE),
+              sd_time = sd(n_stay, na.rm = TRUE),
+              .groups = 'drop') %>%
+    transmute(
+      neuro_post,
+      `Median length of stay [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
+      `Mean length of stay (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
+    pivot_longer(-neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value) %>%
+    column_to_rownames('name')
+}
+
+readmission_stats <- function(df, ...) {
+  # summary statistics for length of stay
+  # count values are obfuscated
+
+  df %>%
+    select(neuro_post, n_readmissions) %>%
+    group_by(neuro_post) %>%
+    summarise(median_readmis = median(n_readmissions, na.rm = TRUE),
+              min_readmis = min(n_readmissions, na.rm = TRUE),
+              max_readmis = max(n_readmissions, na.rm = TRUE),
+              mean_readmis = mean(n_readmissions, na.rm = TRUE),
+              sd_readmis = sd(n_readmissions, na.rm = TRUE),
+              .groups = 'drop') %>%
+    transmute(
+      neuro_post,
+      `Median number of readmissions [Min, Max]` =
+        concat_median(median_readmis, min_readmis, max_readmis),
+      `Mean number of readmissions (SD)` =
+        concat_mean(mean_readmis, sd_readmis)) %>%
+    pivot_longer(- neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value) %>%
+    column_to_rownames('name')
+}
+
 demo_stats <- function(df, var, ...){
   svar <- sym(var)
   df %>%
@@ -91,14 +137,14 @@ blur_it <- function(df, vars, blur_abs, mask_thres){
   # Obfuscate count values.
   # If blurring range is +/-3, or blur_abs = 3,
   # the count receive a small addition of a random number from -3 to 3.
-  # If a count is less than or equal to mask_thres, set that count to 0.
+  # If a count is less than mask_thres, set that count to 0.
 
   for (var in vars){
     var <- sym(var)
     blur_vec <- sample(seq(- blur_abs, blur_abs), nrow(df), replace = TRUE)
     df <- df %>%
       mutate(!!var := !!var + blur_vec,
-             !!var := ifelse(abs(!!var) <= mask_thres, 0, !!var))
+             !!var := ifelse(abs(!!var) < mask_thres, 0, !!var))
   }
   df
 }
