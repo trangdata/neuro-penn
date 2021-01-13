@@ -18,48 +18,47 @@ lapply(my_packages, library, character.only = TRUE)
 theme_set(theme_bw() + 
             theme(legend.title = element_blank(),
                   panel.grid.minor = element_blank()))
-for (r_file in list.files('R/', full.names = TRUE)) source(r_file)
-set.seed(1)
+for (r_file in list.files('R', full.names = TRUE)) source(r_file)
 ```
 
 ```{r penn, message=FALSE}
-#mysite = 'penn'
-#mask_thres = 10 # count mask threshold
-#blur_abs = 0 # absolute max of blurring range
-
-#clin_raw <-
-# read_csv(
-#   '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
-#   col_types = list(patient_num = col_character())
-# )
-#demo_raw <-
-# read_csv(
-#   '../thrombotic-penn/data/LocalPatientSummary.csv',
-#   col_types = list(patient_num = col_character()),
-#   na = '1900-01-01'
-# )
-#obs_raw <-
-# read_csv(
-#   '../thrombotic-penn/data/LocalPatientObservations.csv',
-#   col_types = list(patient_num = col_character())
-# )
+set.seed(1)
+mysite = 'penn'
+mask_thres = 10 # count mask threshold
+blur_abs = 3 # absolute max of blurring range
+clin_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+  col_types = list(patient_num = col_character())
+)
+demo_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientSummary.csv',
+  col_types = list(patient_num = col_character()),
+  na = '1900-01-01'
+)
+obs_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientObservations.csv',
+  col_types = list(patient_num = col_character())
+)
 ```
 
 
 ```{r nwu, message=FALSE}
-mysite = 'nwu'
-mask_thres = 0 # count mask threshold
-blur_abs = 0 # absolute max of blurring range
-
-clin_raw <- read_csv(
-   '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
-   col_types = list(patient_num = col_character()))
-demo_raw <- read_csv(
-   '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-   col_types = list(patient_num = col_character()),
-   na = '1900-01-01')
-obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
-                     col_types = list(patient_num = col_character()))
+# mysite = 'nwu'
+# mask_thres = 0 # count mask threshold
+# blur_abs = 0 # absolute max of blurring range
+# 
+# clin_raw <- read_csv(
+#    '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+#    col_types = list(patient_num = col_character()))
+# demo_raw <- read_csv(
+#    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#    col_types = list(patient_num = col_character()),
+#    na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+#                      col_types = list(patient_num = col_character()))
 ```
 
 
@@ -135,8 +134,8 @@ demo_df <- demo_raw %>%
          readmitted = patient_num %in% readmissions$patient_num,
          neuro_post = patient_num %in% neuro_pt_post %>% 
            as.factor() %>% 
-           fct_recode(`Has neurological condition` = "TRUE",
-                      `No neurological condition` = "FALSE"),
+           fct_recode(neuro_cond = "TRUE",
+                      no_neuro_cond = "FALSE"),
          Survival = as.factor(deceased) %>% 
            fct_recode(Alive = "0", Deceased = "1"),
          sex = as.factor(sex),
@@ -151,107 +150,27 @@ demo_df <- demo_raw %>%
 
 ## Demographics (Table 1)
 
+### Overall
 ```{r}
-formatted_demo <- demo_df %>% 
-  select(Sex = sex, `Age group` = age_group, 
-         Race = race, Severity, Survival, 
-         `Time to severity onset (days)` = time_to_severe, 
-         `Time to death (days)` = time_to_death, 
-         Readmitted = readmitted, neuro_post)
+vars_to_obfs <- c("sex", 'age_group', "race", "Severity",
+                  "Survival", "readmitted")
+get_stats <- function(x) demo_stats(demo_df, x, blur_abs, mask_thres)
+demo_obfus_table <- lapply(vars_to_obfs, get_stats) %>% 
+  do.call(rbind, .)
+datatable(select(demo_obfus_table, variable, contains('pres')))
+```
 
-## obfuscation
-vars_to_obfs <- c("Sex", "Age group", "Race", "Severity",
-                  "Survival", "Readmitted")
-
-obfs_list <- list()
-for(i in vars_to_obfs) {
-  
-    table_mat <-  as.data.frame(table(formatted_demo$neuro_post,
-                                      formatted_demo[[i]]))
-    
-    nrow_var <- nrow(table_mat)
-    ncol_var <- ncol(table_mat)
-    
-    blur_vec <- matrix(sample(seq(-blur_abs, blur_abs),
-                                nrow_var*length(table_mat),
-                                replace = TRUE), ncol = ncol_var)
-    
-    # choose random variable to indicate which column of our blur_vec should be used to blur the data
-    ran_col_to_blur <- sample(1:ncol_var, 1)
-    
-    table_mat <- table_mat %>%
-      mutate(Freq = ifelse(Freq < mask_thres, 0, Freq + blur_vec[,ran_col_to_blur])) %>%
-      pivot_wider(names_from = "Var1", 
-                values_from = "Freq") %>%
-      rowwise() %>%
-      mutate(Total = sum(`Has neurological condition`, `No neurological condition`))
-    
-    sum_no_neuro = sum(table_mat$`No neurological condition`)
-    sum_neuro = sum(table_mat$`Has neurological condition`)
-    sum_all <- sum_no_neuro + sum_neuro
-    
-    table_mat <- table_mat %>%
-      mutate(`% No neurological condition` = round(`No neurological condition`/sum_no_neuro*100, 1),
-             `% Has neurological condition` = round(`Has neurological condition`/sum_neuro*100, 1),
-             `% Total` = round(Total/sum_all*100, 1))
-    
-    colnames(table_mat)[1] <- paste(i)
-    
-    table_mat <- table_mat %>%
-      select(paste(i), `No neurological condition`, `% No neurological condition`, 
-             `Has neurological condition`, `% Has neurological condition`, Total, `% Total`) %>%
-      remove_rownames %>% column_to_rownames(var=paste(i))
-
-    obfs_list[[i]] <- table_mat
-}
-
-demo_table <- do.call(rbind.data.frame, obfs_list)
-
-## Add time to severity and time to death
-neuro_cond <- t(as.data.frame(table(formatted_demo$neuro_post)))
-neuro_cond <- as.data.frame.matrix(neuro_cond)  %>% mutate_all(as.character)
-row.names(neuro_cond) <- NULL
-colnames(neuro_cond) <- neuro_cond[1,]
-neuro_cond <- neuro_cond[-1,]
-row.names(neuro_cond) <- "Total"
-  
+### Time to severity onset
+```{r}
 # severity                
-severity_demo_table <- severity_stats(formatted_demo, neuro_cond)
+severity_obfus_table <- severity_stats(demo_df, blur_abs, mask_thres)
+datatable(severity_obfus_table)
+```
 
-# death 
-death_demo_table <- death_stats(formatted_demo, neuro_cond)
-
-# print demographics table
-datatable(demo_table)
-# time to severity
-datatable(severity_demo_table)
-# time to 
-datatable(death_demo_table)
-
-## export table 1 to csv
-#table_one_vars <- setdiff(colnames(formatted_demo), 'neuro_post')
-
-#demo_table <- tableone::CreateTableOne(
-#  data = formatted_demo,
-#  vars = table_one_vars,
-#  strata= "neuro_post"
-#  )
-
-#table_one <- print(
-#  demo_table,
-#  showAllLevels = TRUE,
-#  formatOptions = list(big.mark = ","),
-#  printToggle = FALSE
-#)
-
-  ## print table 1 html - no obfuscation
-table1::table1(
-  ~ Sex + `Age group` + Race + Severity + Survival + Readmitted +
-    `Time to severity onset (days)` + `Time to death (days)` 
-  | neuro_post,
-  data = formatted_demo,
-  overall = "Total",
-  export = "results/demographics.csv")
+### Time to death
+```{r}
+survival_obfus_table <- survival_stats(demo_df, blur_abs, mask_thres)
+datatable(survival_obfus_table)
 ```
 
 ## Comorbidity
@@ -344,9 +263,6 @@ comorb_unique %>%
 ### Elixhauser Comorbidity Table
 
 ```{r}
-concat <- function(x, y){
-  paste0(x, ' (', round(y, 3)*100, '%)')
-}
 
 scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
 
@@ -377,16 +293,11 @@ combined_table1_elix <- get_table1(
             by = c("Comorbidity", "Abbreviation"))
 
 ## apply blurring and masking
-blur_vec <- matrix(sample(seq(-blur_abs, blur_abs),
-                   4*length(comorbs_elix),
-                   replace = TRUE), ncol = 4)
 
 combined_table1_elix <- combined_table1_elix %>%
+  blur_it(c('n_patients', 'n_neuro_pats'), blur_abs, mask_thres) %>% 
   mutate(
-    n_patients = ifelse(n_patients < mask_thres, 0, n_patients + blur_vec[, 1]),
-    n_neuro_pats = ifelse(n_neuro_pats < mask_thres, 0, n_neuro_pats + blur_vec[, 2]),
     n_non_neuro = n_patients - n_neuro_pats,
-    n_non_neuro = ifelse(abs(n_non_neuro) < mask_thres, 0, n_non_neuro + blur_vec[, 3]),
     prop_patients = n_patients / nrow(demo_raw),
     prop_neuro_pats = n_neuro_pats / nrow(demo_raw),
     prop_non_neuro = n_non_neuro / nrow(demo_raw)
@@ -396,8 +307,8 @@ combined_table1_elix <- combined_table1_elix %>%
 combined_table1_elix %>% 
   transmute(
     Comorbidity, Abbreviation,
-    `Has neurological condition` = concat(n_neuro_pats, prop_neuro_pats),
-    `No neurological condition` = concat(n_non_neuro, prop_non_neuro),
+    neuro_cond = concat(n_neuro_pats, prop_neuro_pats),
+    no_neuro_cond = concat(n_non_neuro, prop_non_neuro),
     Total = concat(n_patients, prop_patients)) %>% 
   datatable() 
 
@@ -460,23 +371,25 @@ summarised_stay <- nstay_df %>%
             median_elix = median(elixhauser_score, na.rm = TRUE),
             sd_elix = sd(elixhauser_score, na.rm = TRUE),
             n_patients = n(),
-            n_patients = ifelse(n_patients < mask_thres, 0, n_patients + blur_vec),
             prop_deceased = mean(deceased),
             prop_severe = mean(severe),
-            .groups = 'drop')
+            .groups = 'drop') %>% 
+  blur_it('n_patients', blur_abs, mask_thres)
 
 ```
 
 ```{r save-results}
 list_results = list(
-  demo_table = demo_table,
-  severity_demo_table = severity_demo_table,
-  death_demo_table = death_demo_table,
+  demo_table = demo_obfus_table,
+  severity_demo_table = severity_obfus_table,
+  survival_demo_table = survival_obfus_table,
   summarised_stay = summarised_stay, 
   n_stay_reg_elix = n_stay_reg_elix, 
   severe_reg_elix = severe_reg_elix, 
   deceased_reg_elix = deceased_reg_elix, 
   combined_table1_elix = combined_table1_elix)
+
+penn_results <- lapply(list_results, function(x) mutate(x, site = mysite))
 
 site_results <- paste0(mysite, '_results')
 assign(site_results, list_results)
@@ -488,20 +401,3 @@ save(list = site_results,
 #           paste0('results/', mysite, '-combined-elix.csv'), 
 #           row.names = FALSE)
 ```
-
-```{r nwu-save-results}
-# summarised_stay_nwu = summarised_stay
-# n_stay_reg_nwu = n_stay_reg
-# severe_reg_nwu = severe_reg
-# deceased_reg_nwu = deceased_reg
-# table_one_nwu = table_one
-# write.csv(table_one_nwu, file = "results/nwu-table1.csv")
-# 
-# save(summarised_stay_nwu,
-#      severe_reg_nwu,
-#      deceased_reg_nwu,
-#      table_one_nwu,
-#      n_stay_reg_nwu, 
-#      file = 'results/nwu-results.rda')
-```
-
