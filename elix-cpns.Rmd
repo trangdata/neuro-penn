@@ -1,0 +1,426 @@
+---
+title: "Neurological condition analysis"
+output: html_document
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "htmls") })
+---
+
+```{r setup, message=FALSE, warning=FALSE, results='hide'}
+my_packages <- c('tidyverse', 'readxl', 'DT', 'rcartocolor', 'gghighlight', 
+                 'cowplot', 'broom', 'devtools', 'tableone')
+
+existing_pkgs <- installed.packages()[,"Package"]
+to_install <- setdiff(my_packages, existing_pkgs)
+if (length(to_install)) install.packages(to_install)
+if (!'icd' %in% existing_pkgs) devtools::install_github('jackwasey/icd')
+
+lapply(my_packages, library, character.only = TRUE)
+theme_set(theme_bw() + 
+            theme(legend.title = element_blank(),
+                  panel.grid.minor = element_blank()))
+for (r_file in list.files('R', full.names = TRUE)) source(r_file)
+```
+
+## Data read-in
+
+Change this following chunk of code for your site-specific data:
+
+```{r penn, message=FALSE}
+# set.seed(1)
+mysite = 'penn'
+mask_thres = 10 # count mask threshold
+blur_abs = 0 # absolute max of blurring range
+clin_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+  col_types = list(patient_num = col_character())
+)
+demo_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientSummary.csv',
+  col_types = list(patient_num = col_character()),
+  na = '1900-01-01'
+)
+obs_raw <-
+read_csv(
+  '../thrombotic-penn/data/LocalPatientObservations.csv',
+  col_types = list(patient_num = col_character())
+)
+```
+
+
+```{r nwu, message=FALSE}
+# mysite = 'nwu'
+# mask_thres = 0 # count mask threshold
+# blur_abs = 0 # absolute max of blurring range
+# 
+# clin_raw <- read_csv(
+#    '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+#    col_types = list(patient_num = col_character()))
+# demo_raw <- read_csv(
+#    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#    col_types = list(patient_num = col_character()),
+#    na = '1900-01-01')
+# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+#                      col_types = list(patient_num = col_character()))
+```
+
+
+```{r message=FALSE, warning=FALSE}
+loinc <- read_csv('public-data/loinc-map.csv')
+neuro_icds_10 <-
+  read_excel('public-data/2020-09-10_neuro-icd10_CNSvPNS.xlsx') %>%
+  rename('icd' = `ICD-10`,
+         'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`) %>%
+  mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(central = '1',
+                                                     peripheral = '2'))
+```
+
+## Data pre-processing
+
+In this initial analysis, we will consider neuro patients as those with a neuro code on the day **of** or **anytime after** their first day of admission.
+These patients developed neurological conditions after a COVID-19 related admission.
+
+We're only examining ICD-10 for now.
+
+*Note: comorbidities are estimated with ICD codes recorded from 365-15 days prior to the day of admission.*
+
+```{r}
+neuro_patients <- obs_raw %>% 
+  filter(
+    days_since_admission >= 0,
+  ) %>% 
+  right_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  filter(!is.na(patient_num)) %>% 
+  distinct(patient_num, concept_code, pns_cns) %>% 
+  group_by(patient_num) %>% 
+  mutate(nerv_sys_count = length(unique(pns_cns))) %>% 
+  ungroup() %>% 
+  mutate(neuro_type = case_when(
+    nerv_sys_count == 2 ~ 'both',
+    TRUE ~ as.character(pns_cns)
+  ))
+
+patients_pns_cns <- neuro_patients %>%
+  distinct(patient_num, neuro_type)
+
+neuro_pt_post <- unique(neuro_patients$patient_num)
+  
+non_neuro_patients <- data.frame(
+  patient_num = setdiff(demo_raw$patient_num, neuro_pt_post)) %>% 
+  mutate(concept_code = 'NN')
+
+readmissions <- clin_raw %>% 
+  group_by(patient_num) %>% 
+  mutate(delta_hospitalized = diff(c(in_hospital[1], in_hospital))) %>% 
+  ungroup() %>% 
+  filter(delta_hospitalized != 0,
+         in_hospital == 1) %>%
+  add_count(patient_num, name = 'n_readmissions') %>%
+  arrange(desc(n_readmissions)) %>% 
+  select(patient_num, n_readmissions) %>% 
+  distinct()
+
+nrow(readmissions)
+
+readmissions %>% 
+  count(n_readmissions) %>% 
+  blur_it('n', blur_abs, mask_thres) %>% 
+  ggplot() +
+  geom_col(aes(x = n_readmissions, y = n))
+```
+
+
+*Note*: Length of stay is calculated as the period length from admission date to the last discharge date.
+
+```{r}
+days_count_min_max <- obs_raw %>%
+  group_by(patient_num) %>%
+  summarise(
+    distinct_days = n_distinct(days_since_admission),
+    min_hos = min(days_since_admission),
+    .groups = 'drop'
+  )
+
+demo_df <- demo_raw %>%
+  mutate(time_to_severe = severe_date - admission_date,
+         time_to_severe = ifelse(time_to_severe < 0, NA, time_to_severe),
+         time_to_death = death_date - admission_date,
+         time_to_death = ifelse(time_to_death < 0, NA, time_to_death),
+         readmitted = patient_num %in% readmissions$patient_num,
+         Survival = as.factor(deceased) %>% 
+           fct_recode(Alive = "0", Deceased = "1"),
+         sex = as.factor(sex),
+         race = as.factor(race),
+         age_group = as.factor(age_group),
+         Severity = as.factor(severe) %>% 
+           fct_recode(Severe = "1", `Non-severe` = "0"),
+         n_stay = as.numeric(last_discharge_date - admission_date,
+                             units="days")) %>% 
+  left_join(select(neuro_patients, patient_num, neuro_type), 
+            by = 'patient_num') %>% 
+  replace_na(list(neuro_type = 'none')) %>% 
+  mutate(neuro_post = fct_relevel(neuro_type, c('none', 'peripheral', 'central', 'both'))) %>% 
+  left_join(days_count_min_max, by = 'patient_num')
+```
+
+## Demographics (Table 1)
+
+### Overall
+```{r}
+vars_to_obfs <- c("sex", 'age_group', "race", "Severity",
+                  "Survival", "readmitted")
+get_stats <- function(x) demo_stats(demo_df, x, blur_abs, mask_thres)
+demo_obfus_table <- lapply(vars_to_obfs, get_stats) %>% 
+  do.call(rbind, .)
+datatable(select(demo_obfus_table, variable, contains('pres')))
+```
+
+### Other descriptive stats
+
+Length of stay, number of readmissions, time to severity onset, time to death
+
+```{r}
+nstay_obfus_table <- nstay_stats(demo_df, blur_abs, mask_thres)
+severity_obfus_table <- severity_stats(demo_df, blur_abs, mask_thres)
+survival_obfus_table <- survival_stats(demo_df, blur_abs, mask_thres)
+readmission_obfus_table <- demo_df %>% 
+  left_join(readmissions, by = 'patient_num') %>% 
+  replace_na(list(n_readmissions = 0)) %>% 
+  readmission_stats(blur_abs, mask_thres)
+
+other_obfus_table <-
+  bind_rows(
+    nstay_obfus_table,
+    readmission_obfus_table,
+    severity_obfus_table,
+    survival_obfus_table
+  )
+datatable(other_obfus_table, options = list(pageLength = 12))
+```
+
+## Comorbidity
+
+```{r}
+n_patients <- nrow(demo_raw)
+obs_raw <- obs_raw %>% 
+  filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"))
+table(demo_df$neuro_post)
+```
+
+New variable `neuro_post` to indicate whether the patient developed neurological conditions after COVID-19 related admission.
+
+## Map comorbidities
+
+List of comorbidity abbreviations for reference purposes,
+then run the `map_char_elix_codes()` function:
+
+```{r}
+# for elixhauser
+comorb_names_elix <- get_quan_elix_names()
+comorbs_elix <- as.vector(comorb_names_elix$Abbreviation)
+
+# t1: earliest time point to consider comorbidities
+# t2: latest time point to consider comorbidities
+# example <- t1 = -365, and t2 = -1 will map all all codes up to a year prior but before admission (admission = day 0)
+
+comorb_elix <- map_char_elix_codes(
+  df = obs_raw,
+  comorb_names = comorb_names_elix,
+  t1 = -365,
+  t2 = -15,
+  map_type = 'elixhauser'
+)
+```
+
+`map_char_elix_codes()` outputs a 2-element lists: 
+
+<!-- 1- Dataframe indicating which comorbidities were mapped -->
+
+1- Dataframe of the Charlson/Elixhauser comorbidity index scores
+
+2- Dataframe of the specific mapped codes arranged by frequency.
+Comorbidity mapping of all patients with ICD codes prior to admission, regardless of whether or not they had a comorbidity.
+
+```{r}
+# elixhauser
+index_scores_elix <- comorb_elix$index_scores %>% 
+  rename('elixhauser_score' = van_walraven_score)
+# van Walraven is a modification of Elixhauser comorbidity measure
+# doi.org/10.1097/MLR.0b013e31819432e5
+mapped_codes_table_elix <- comorb_elix$mapped_codes_table
+comorb_names_elix$Abbreviation <- as.character(comorb_names_elix$Abbreviation)
+```
+
+Here we can determine how many unique patients we have comorbidity index for prior to admission:
+```{r}
+comorb_unique <- select(index_scores_elix, patient_num, elixhauser_score)
+length(unique(index_scores_elix$patient_num))
+```
+
+## Elixhauser comorbidity matrix
+
+Heatmap of number of patients in each comorbidity type:
+
+```{r}
+n_comorbs <- colSums(index_scores_elix[, comorbs_elix])
+pos_comorbs <- names(n_comorbs[n_comorbs > 0])
+elix_mat <- cor(index_scores_elix[, pos_comorbs])
+heatmap(elix_mat, cexRow = 0.5, cexCol = 0.5)
+```
+
+### Elixhauser Distribution
+
+```{r}
+comorb_unique %>% 
+  left_join(demo_df, by = 'patient_num') %>% 
+  mutate(severe = as.factor(severe) %>% 
+           fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
+  ggplot(aes(x = neuro_post, y = elixhauser_score, fill = neuro_post)) + 
+  geom_boxplot(outlier.colour = NA) + 
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  guides(fill = FALSE) +
+  labs(x = NULL) +
+  scale_fill_carto_d()
+```
+
+### Elixhauser Comorbidity Table
+
+```{r}
+scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
+
+scores_neuro <- obs_raw %>% 
+  # 1 patient can have different code but each only counted once
+  distinct(patient_num, concept_code) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  left_join(scores_unique, by = 'patient_num') %>% 
+  filter(!is.na(elixhauser_score)) %>%
+  mutate(concept_code = case_when(
+           is.na(`Neurological Disease Category`) ~ 'NN',
+           TRUE ~ concept_code) %>% 
+           as.factor() %>% 
+           fct_reorder(- elixhauser_score),
+         `Neurological Disease Category` =
+           as.factor(`Neurological Disease Category`) %>% 
+           fct_reorder(elixhauser_score)) %>% 
+  {.}
+
+elix_obfus_table1 <- get_table1(
+  index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
+  comorbidities = comorb_names_elix,
+  comorbidities_map = comorb_names_elix$Abbreviation) %>% 
+  rename('n_neuro_pats' = n_patients) %>% 
+  left_join(get_table1(index_scores_elix,
+                       comorbidities_map = comorb_names_elix$Abbreviation, 
+                       comorbidities = comorb_names_elix), 
+            by = c("Comorbidity", "Abbreviation")) %>%
+  ## apply blurring and masking
+  blur_it(c('n_patients', 'n_neuro_pats'), blur_abs, mask_thres) %>% 
+  mutate(
+    n_non_neuro = n_patients - n_neuro_pats,
+    prop_patients = n_patients / nrow(demo_raw),
+    prop_neuro_pats = n_neuro_pats / nrow(demo_raw),
+    prop_non_neuro = n_non_neuro / nrow(demo_raw)
+  ) %>%
+  arrange(desc(n_neuro_pats))
+
+elix_obfus_table1 %>% 
+  transmute(
+    Comorbidity, Abbreviation,
+    neuro_cond = concat(n_neuro_pats, prop_neuro_pats),
+    no_neuro_cond = concat(n_non_neuro, prop_non_neuro),
+    Total = concat(n_patients, prop_patients)) %>% 
+  datatable() 
+
+elix_obfus_table1 %>% 
+  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
+  ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
+  geom_col(position = 'dodge') +
+  scale_fill_brewer(palette = 'Dark2', direction = -1,
+                    guide = guide_legend(reverse=TRUE),
+                    label = c('Neuro', 'All')) +
+  labs(y = NULL)
+```
+
+## Short term outcomes
+
+Do hospitalized COVID-19 patients with neurological conditions have a different short-term natural history (hospital days, death, severity, readmission) from those without?
+
+Resolution: Elixhauser score vs comorbidity type, Neurological condition (TRUE/FALSE) vs. neurological ICD code?
+
+### Severity, Death, Length of stay
+
+```{r}
+severe_reg_elix <- glm(severe ~ neuro_post + elixhauser_score + sex + age_group + race,
+   data = scores_unique, family = 'binomial') %>% 
+  tidy()
+severe_reg_elix
+deceased_reg_elix <- glm(deceased ~ neuro_post + elixhauser_score + sex + age_group + race,
+   data = scores_unique, family = 'binomial') %>% 
+  tidy()
+deceased_reg_elix
+
+n_stay_reg_elix <- lm(n_stay ~ neuro_post + elixhauser_score + race + sex + age_group, 
+   data = scores_unique) %>%
+  tidy()
+
+n_stay_reg_elix
+
+scores_unique %>% 
+  ggplot(aes(x = neuro_post, y = n_stay, fill = neuro_post)) +
+  geom_boxplot(outlier.colour = NA) +
+  geom_jitter(alpha = 0.2, width = 0.2, size = 0.6) +
+  guides(fill = FALSE) +
+  labs(x = NULL) +
+  scale_fill_carto_d()
+```
+
+**Elixhauser**
+
+```{r}
+nstay_df <- neuro_patients %>% 
+  bind_rows(non_neuro_patients) %>% 
+  left_join(demo_df, by = 'patient_num') %>%
+  left_join(index_scores_elix, by = 'patient_num') %>%
+  # mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
+  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  mutate(full_icd = case_when(
+    concept_code == 'NN' ~ 'No neurological condition',
+    TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
+             as.factor() %>% fct_reorder(n_stay)) 
+
+summarised_obfus_icd <- nstay_df %>%
+  group_by(concept_code) %>% 
+  summarise(mean_stay = mean(n_stay),
+            median_stay = median(n_stay),
+            sd_stay = sd(n_stay),
+            mean_elix = mean(elixhauser_score, na.rm = TRUE),
+            median_elix = median(elixhauser_score, na.rm = TRUE),
+            sd_elix = sd(elixhauser_score, na.rm = TRUE),
+            n_patients = n(),
+            prop_deceased = mean(deceased),
+            prop_severe = mean(severe),
+            .groups = 'drop') %>% 
+  blur_it('n_patients', blur_abs, mask_thres)
+
+```
+
+```{r save-results}
+list_results = list(
+  demo_table = demo_obfus_table,
+  other_obfus_table = other_obfus_table,
+  elix_obfus_table1 = elix_obfus_table1,
+  summarised_obfus_icd = summarised_obfus_icd,
+  n_stay_reg_elix = n_stay_reg_elix,
+  severe_reg_elix = severe_reg_elix, 
+  deceased_reg_elix = deceased_reg_elix)
+
+list_results <- lapply(list_results, function(x) mutate(x, site = mysite))
+list_results <- c(list_results, elix_mat = elix_mat)
+
+site_results <- paste0(mysite, '_pcns_results')
+assign(site_results, list_results)
+save(list = site_results,
+     file = paste0('results/', mysite, '-pcns-results.rda'))
+```
