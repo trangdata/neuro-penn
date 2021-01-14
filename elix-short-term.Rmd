@@ -68,8 +68,12 @@ read_csv(
 
 ```{r message=FALSE, warning=FALSE}
 loinc <- read_csv('public-data/loinc-map.csv')
-neuro_icds_10 <- read_excel('public-data/2020-09-10_neuro-icd10.xlsx') %>% 
-  rename('icd' = `ICD-10`)
+neuro_icds_10 <-
+  read_excel('public-data/2020-09-10_neuro-icd10_CNSvPNS.xlsx') %>%
+  rename('icd' = `ICD-10`,
+         'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`) %>%
+  mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(central = '1',
+                                                     peripheral = '2'))
 ```
 
 ## Data pre-processing
@@ -388,7 +392,7 @@ list_results = list(
   other_obfus_table = other_obfus_table,
   elix_obfus_table1 = elix_obfus_table1,
   summarised_obfus_icd = summarised_obfus_icd,
-  n_stay_reg_elix = n_stay_reg_elix, 
+  n_stay_reg_elix = n_stay_reg_elix,
   severe_reg_elix = severe_reg_elix, 
   deceased_reg_elix = deceased_reg_elix)
 
