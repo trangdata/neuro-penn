@@ -419,8 +419,8 @@ list_results = list(
 list_results <- lapply(list_results, function(x) mutate(x, site = mysite))
 list_results <- c(list_results, elix_mat = elix_mat)
 
-site_results <- paste0(mysite, '_pcns_results')
+site_results <- paste0(mysite, '_cpns_results')
 assign(site_results, list_results)
 save(list = site_results,
-     file = paste0('results/', mysite, '-pcns-results.rda'))
+     file = paste0('results/', mysite, '-cpns-results.rda'))
 ```
