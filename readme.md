@@ -4,7 +4,7 @@ This repository performs missing data analysis on data at different sites and re
 
 ## Which script should I run?
 
-**Short answer: `elix-short-time.Rmd`**
+**Short answer: `elix-short-term.Rmd` and `elix-cpns.Rmd` ** 
 
 The best way to run this analysis is to clone this repository on your local machine
 (please ensure you're in a directory where you want the repository to be downloaded):
@@ -15,17 +15,19 @@ Then, go inside the repository:
 
 ```cd neuro-penn```
 
-and make a copy of `elix-short-time.Rmd`, name it with your site name, for example:
+and make a copy of `elix-short-term.Rmd`, name it with your site name, for example:
 
-```cp elix-short-time.Rmd elix-short-time-penn.Rmd```
+```cp elix-short-term.Rmd elix-short-term-penn.Rmd```
 
 Then, open the R project
 
 ```open neuro-penn.Rproj```
 
-and navigate to the newly created file (e.g. `elix-short-time-penn.Rmd`) to modify the code to run on the data at your specific site.
-**Please be sure to change the second code chunk to read in your site-specific data, including replacing "penn" with your site name, for example, `mysite = 'nwu'`.**
+and navigate to the newly created file (e.g. `elix-short-term-penn.Rmd`) to modify the code to run on the data at your specific site.
+**Please be sure to change the second code chunk to read in your site-specific data, including replacing "penn" with your site name,** for example, `mysite = 'nwu'`.
 Once everything runs, please hit the "Knit" button on top of the `.Rmd` file to create an `.html` file that will automatically be put into [`htmls/`](htmls/).
+
+Knit the `elix-cpns-[your_site_id].Rmd` similarly.
 
 Finally, please upload your results (in [`results/`](results/) and [`htmls/`](htmls/)) via a [pull request](https://github.com/trang1618/neuro-penn/pulls) or request @trang1618 to add you as a contributor.
 
