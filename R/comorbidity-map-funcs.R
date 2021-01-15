@@ -211,17 +211,33 @@ map_char_elix_codes <- function(df, comorb_names, t1, t2, map_type, truncate = T
 # where df takes in the matrix for the initial mapping
 
 get_table1 <- function(
-  df,
-  comorbidities = comorb_name_df,
-  comorbidities_map = comorbidities$Abbreviation
+  df, num_pats, comorbidities,
+  pat_col = 'patients', ...
 )
   {
+  npat_col = sym(paste('n', pat_col, sep = '_'))
+  proppat_col = sym(paste('prop', pat_col, sep = '_'))
+  comorbidities_map = comorbidities$Abbreviation
+
   df %>%
     select(all_of(comorbidities_map)) %>%
     colSums() %>%
     data.frame(n_patients = .) %>%
     rownames_to_column("Abbreviation") %>%
+    blur_it('n_patients', ...) %>%
+    mutate(prop_patients = n_patients/num_pats) %>%
+    rename(!!npat_col := n_patients,
+           !!proppat_col := prop_patients) %>%
     right_join(comorbidities, ., by = "Abbreviation")
+}
+
+# df =scores_unique %>% filter(neuro_post == 'None')
+list_table1 <- function(x, df, num_pats, comorb_names, ...){
+  get_table1(
+    df %>% filter(neuro_post == x),
+    num_pats,
+    comorbidities = comorb_names,
+    pat_col = x, ...)
 }
 
 process_tables <- function(index_scores, ...) {

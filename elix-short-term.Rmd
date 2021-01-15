@@ -293,41 +293,35 @@ scores_neuro <- obs_raw %>%
            fct_reorder(elixhauser_score)) %>% 
   {.}
 
-elix_obfus_table1 <- get_table1(
-  index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
-  comorbidities = comorb_names_elix,
-  comorbidities_map = comorb_names_elix$Abbreviation) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores_elix,
-                       comorbidities_map = comorb_names_elix$Abbreviation, 
-                       comorbidities = comorb_names_elix), 
-            by = c("Comorbidity", "Abbreviation")) %>%
-  ## apply blurring and masking
-  blur_it(c('n_patients', 'n_neuro_pats'), blur_abs, mask_thres) %>% 
+elix_obfus_table1 <- 
+  Reduce(function(...) left_join(..., by = c("Comorbidity", "Abbreviation")), 
+       lapply(c('no_neuro_cond', 'neuro_cond'), list_table1, 
+              df = scores_unique,
+              num_pats = nrow(demo_df),
+              comorb_names = comorb_names_elix,
+              blur_abs = blur_abs, mask_thres = mask_thres)) %>% 
   mutate(
-    n_non_neuro = n_patients - n_neuro_pats,
-    prop_patients = n_patients / nrow(demo_raw),
-    prop_neuro_pats = n_neuro_pats / nrow(demo_raw),
-    prop_non_neuro = n_non_neuro / nrow(demo_raw)
+    n_Total = n_no_neuro_cond + n_neuro_cond,
+    prop_Total = n_Total / nrow(demo_raw)
   ) %>%
-  arrange(desc(n_neuro_pats))
+  arrange(desc(n_Total))
 
 elix_obfus_table1 %>% 
   transmute(
     Comorbidity, Abbreviation,
-    neuro_cond = concat(n_neuro_pats, prop_neuro_pats),
-    no_neuro_cond = concat(n_non_neuro, prop_non_neuro),
-    Total = concat(n_patients, prop_patients)) %>% 
+    `Has neurological condition` = concat(n_neuro_cond, prop_neuro_cond),
+    `No neurological condition` = concat(n_no_neuro_cond, prop_no_neuro_cond),
+    Total = concat(n_Total, prop_Total)) %>% 
   datatable() 
 
 elix_obfus_table1 %>% 
-  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
-  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
+  select(- contains('prop_'), - n_Total) %>% 
+  pivot_longer(contains('n_')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})')) %>% 
   ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
-  geom_col(position = 'dodge') +
+  geom_col(position = 'stack') +
   scale_fill_brewer(palette = 'Dark2', direction = -1,
-                    guide = guide_legend(reverse=TRUE),
-                    label = c('Neuro', 'All')) +
+                    guide = guide_legend(reverse=TRUE)) +
   labs(y = NULL)
 ```
 

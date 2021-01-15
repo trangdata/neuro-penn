@@ -4,7 +4,7 @@ This repository performs missing data analysis on data at different sites and re
 
 ## Which script should I run?
 
-**Short answer: `elix-short-term.Rmd` and `elix-cpns.Rmd` ** 
+**Short answer: `elix-short-term.Rmd` and `elix-cpns.Rmd`** 
 
 The best way to run this analysis is to clone this repository on your local machine
 (please ensure you're in a directory where you want the repository to be downloaded):

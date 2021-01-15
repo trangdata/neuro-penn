@@ -72,8 +72,8 @@ neuro_icds_10 <-
   read_excel('public-data/2020-09-10_neuro-icd10_CNSvPNS.xlsx') %>%
   rename('icd' = `ICD-10`,
          'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`) %>%
-  mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(central = '1',
-                                                     peripheral = '2'))
+  mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(Central = '1',
+                                                     Peripheral = '2'))
 ```
 
 ## Data pre-processing
@@ -86,6 +86,8 @@ We're only examining ICD-10 for now.
 *Note: comorbidities are estimated with ICD codes recorded from 365-15 days prior to the day of admission.*
 
 ```{r}
+neuro_types <- c('None', 'Peripheral', 'Central', 'Both')
+
 neuro_patients <- obs_raw %>% 
   filter(
     days_since_admission >= 0,
@@ -97,7 +99,7 @@ neuro_patients <- obs_raw %>%
   mutate(nerv_sys_count = length(unique(pns_cns))) %>% 
   ungroup() %>% 
   mutate(neuro_type = case_when(
-    nerv_sys_count == 2 ~ 'both',
+    nerv_sys_count == 2 ~ 'Both',
     TRUE ~ as.character(pns_cns)
   ))
 
@@ -159,8 +161,8 @@ demo_df <- demo_raw %>%
                              units="days")) %>% 
   left_join(select(neuro_patients, patient_num, neuro_type), 
             by = 'patient_num') %>% 
-  replace_na(list(neuro_type = 'none')) %>% 
-  mutate(neuro_post = fct_relevel(neuro_type, c('none', 'peripheral', 'central', 'both'))) %>% 
+  replace_na(list(neuro_type = 'None')) %>% 
+  mutate(neuro_post = fct_relevel(neuro_type, neuro_types)) %>% 
   left_join(days_count_min_max, by = 'patient_num')
 ```
 
@@ -305,41 +307,37 @@ scores_neuro <- obs_raw %>%
            fct_reorder(elixhauser_score)) %>% 
   {.}
 
-elix_obfus_table1 <- get_table1(
-  index_scores_elix %>% filter(patient_num %in% neuro_pt_post),
-  comorbidities = comorb_names_elix,
-  comorbidities_map = comorb_names_elix$Abbreviation) %>% 
-  rename('n_neuro_pats' = n_patients) %>% 
-  left_join(get_table1(index_scores_elix,
-                       comorbidities_map = comorb_names_elix$Abbreviation, 
-                       comorbidities = comorb_names_elix), 
-            by = c("Comorbidity", "Abbreviation")) %>%
-  ## apply blurring and masking
-  blur_it(c('n_patients', 'n_neuro_pats'), blur_abs, mask_thres) %>% 
+elix_obfus_table1 <- 
+  Reduce(function(...) left_join(..., by = c("Comorbidity", "Abbreviation")), 
+       lapply(neuro_types, list_table1, 
+              df = scores_unique,
+              num_pats = nrow(demo_df),
+              comorb_names = comorb_names_elix,
+              blur_abs = blur_abs, mask_thres = mask_thres)) %>% 
   mutate(
-    n_non_neuro = n_patients - n_neuro_pats,
-    prop_patients = n_patients / nrow(demo_raw),
-    prop_neuro_pats = n_neuro_pats / nrow(demo_raw),
-    prop_non_neuro = n_non_neuro / nrow(demo_raw)
+    n_Total = n_None + n_Central + n_Peripheral + n_Both,
+    prop_Total = n_Total / nrow(demo_raw)
   ) %>%
-  arrange(desc(n_neuro_pats))
+  arrange(desc(n_Total))
 
 elix_obfus_table1 %>% 
   transmute(
     Comorbidity, Abbreviation,
-    neuro_cond = concat(n_neuro_pats, prop_neuro_pats),
-    no_neuro_cond = concat(n_non_neuro, prop_non_neuro),
-    Total = concat(n_patients, prop_patients)) %>% 
+    None = concat(n_None, prop_None),
+    Peripheral = concat(n_Peripheral, prop_Peripheral),
+    Central = concat(n_Central, prop_Central),
+    Both = concat(n_Both, prop_Both),
+    Total = concat(n_Total, prop_Total)) %>% 
   datatable() 
 
 elix_obfus_table1 %>% 
-  pivot_longer(c(n_patients, n_neuro_pats)) %>% 
-  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})'))%>% 
+  select(- contains('prop_'), - n_Total) %>% 
+  pivot_longer(contains('n_')) %>% 
+  mutate(fullname = glue::glue('{Comorbidity} ({Abbreviation})')) %>% 
   ggplot(aes(x = value, y = fct_reorder(fullname, value), fill = name)) +
-  geom_col(position = 'dodge') +
+  geom_col(position = 'stack') +
   scale_fill_brewer(palette = 'Dark2', direction = -1,
-                    guide = guide_legend(reverse=TRUE),
-                    label = c('Neuro', 'All')) +
+                    guide = guide_legend(reverse=TRUE)) +
   labs(y = NULL)
 ```
 
