@@ -190,15 +190,6 @@ readmission_obfus_table <- demo_df %>%
   left_join(readmissions, by = 'patient_num') %>% 
   replace_na(list(n_readmissions = 0)) %>% 
   readmission_stats(blur_abs, mask_thres)
-
-other_obfus_table <-
-  bind_rows(
-    nstay_obfus_table,
-    readmission_obfus_table,
-    severity_obfus_table,
-    survival_obfus_table
-  )
-datatable(other_obfus_table, options = list(pageLength = 12))
 ```
 
 ## Comorbidity
@@ -256,7 +247,9 @@ comorb_names_elix$Abbreviation <- as.character(comorb_names_elix$Abbreviation)
 
 Here we can determine how many unique patients we have comorbidity index for prior to admission:
 ```{r}
-comorb_unique <- select(index_scores_elix, patient_num, elixhauser_score)
+comorb_unique <- index_scores_elix %>% 
+  select(patient_num, elixhauser_score) %>% 
+  left_join(demo_df, by = 'patient_num')
 length(unique(index_scores_elix$patient_num))
 ```
 
@@ -274,8 +267,7 @@ heatmap(elix_mat, cexRow = 0.5, cexCol = 0.5)
 ### Elixhauser Distribution
 
 ```{r}
-comorb_unique %>% 
-  left_join(demo_df, by = 'patient_num') %>% 
+comorb_unique  %>% 
   mutate(severe = as.factor(severe) %>% 
            fct_recode('Severe' = '1', 'Non-severe' = '0')) %>% 
   ggplot(aes(x = neuro_post, y = elixhauser_score, fill = neuro_post)) + 
@@ -284,6 +276,18 @@ comorb_unique %>%
   guides(fill = FALSE) +
   labs(x = NULL) +
   scale_fill_carto_d()
+
+elix_obfus_table <- elix_stats(comorb_unique, blur_abs, mask_thres)
+
+other_obfus_table <-
+  bind_rows(
+    nstay_obfus_table,
+    readmission_obfus_table,
+    severity_obfus_table,
+    survival_obfus_table,
+    elix_obfus_table
+  )
+datatable(other_obfus_table, options = list(pageLength = 14))
 ```
 
 ### Elixhauser Comorbidity Table
