@@ -406,13 +406,15 @@ list_results = list(
   demo_table = demo_obfus_table,
   other_obfus_table = other_obfus_table,
   elix_obfus_table1 = elix_obfus_table1,
-  summarised_obfus_icd = summarised_obfus_icd,
-  n_stay_reg_elix = n_stay_reg_elix,
-  severe_reg_elix = severe_reg_elix, 
-  deceased_reg_elix = deceased_reg_elix)
+  summarised_obfus_icd = summarised_obfus_icd
+)
 
 list_results <- lapply(list_results, function(x) mutate(x, site = mysite))
-list_results <- c(list_results, elix_mat = elix_mat)
+list_results <- c(list_results, site = mysite,
+                  elix_mat = elix_mat,
+                  n_stay_reg_elix = n_stay_reg_elix,
+                  severe_reg_elix = severe_reg_elix, 
+                  deceased_reg_elix = deceased_reg_elix)
 
 site_results <- paste0(mysite, '_cpns_results')
 assign(site_results, list_results)
