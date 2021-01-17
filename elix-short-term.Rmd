@@ -335,17 +335,14 @@ Resolution: Elixhauser score vs comorbidity type, Neurological condition (TRUE/F
 
 ```{r}
 severe_reg_elix <- glm(severe ~ neuro_post + elixhauser_score + sex + age_group + race,
-   data = scores_unique, family = 'binomial') %>% 
-  tidy()
+   data = scores_unique, family = 'binomial')
 severe_reg_elix
 deceased_reg_elix <- glm(deceased ~ neuro_post + elixhauser_score + sex + age_group + race,
-   data = scores_unique, family = 'binomial') %>% 
-  tidy()
+   data = scores_unique, family = 'binomial')
 deceased_reg_elix
 
 n_stay_reg_elix <- lm(n_stay ~ neuro_post + elixhauser_score + race + sex + age_group, 
-   data = scores_unique) %>%
-  tidy()
+   data = scores_unique)
 
 n_stay_reg_elix
 ```
