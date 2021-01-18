@@ -74,6 +74,9 @@ neuro_icds_10 <-
          'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`) %>%
   mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(Central = '1',
                                                      Peripheral = '2'))
+
+neuro_icds_10[, -(1:2)] %>% 
+  write_csv('results/neuro_icds_10_pcns.csv')
 ```
 
 ## Data pre-processing
@@ -390,11 +393,16 @@ list_results = list(
 )
 
 list_results <- lapply(list_results, function(x) mutate(x, site = mysite))
-list_results <- c(list_results, site = mysite,
-                  elix_mat = elix_mat,
-                  n_stay_reg_elix = n_stay_reg_elix,
-                  severe_reg_elix = severe_reg_elix, 
-                  deceased_reg_elix = deceased_reg_elix)
+list_results <- c(
+  list_results,
+  list(
+    site = mysite,
+    elix_mat = elix_mat,
+    n_stay_reg_elix = n_stay_reg_elix,
+    severe_reg_elix = severe_reg_elix,
+    deceased_reg_elix = deceased_reg_elix
+  )
+)
 
 site_results <- paste0(mysite, '_results')
 assign(site_results, list_results)
