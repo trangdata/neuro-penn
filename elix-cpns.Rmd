@@ -67,7 +67,7 @@ read_csv(
 
 
 ```{r message=FALSE, warning=FALSE}
-loinc <- read_csv('public-data/loinc-map.csv')
+# loinc <- read_csv('public-data/loinc-map.csv')
 neuro_icds_10 <-
   read_excel('public-data/2020-09-10_neuro-icd10_CNSvPNS.xlsx') %>%
   rename('icd' = `ICD-10`,
