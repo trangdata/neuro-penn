@@ -112,6 +112,30 @@ readmission_stats <- function(df, ...) {
     column_to_rownames('name')
 }
 
+elix_stats <- function(df, ...) {
+  # summary statistics for Elixhauser score
+  # count values are obfuscated
+
+  df %>%
+    select(neuro_post, elixhauser_score) %>%
+    group_by(neuro_post) %>%
+    summarise(median_elix = median(elixhauser_score, na.rm = TRUE),
+              min_elix = min(elixhauser_score, na.rm = TRUE),
+              max_elix = max(elixhauser_score, na.rm = TRUE),
+              mean_elix = mean(elixhauser_score, na.rm = TRUE),
+              sd_elix = sd(elixhauser_score, na.rm = TRUE),
+              .groups = 'drop') %>%
+    transmute(
+      neuro_post,
+      `Median Elixhauser score [Min, Max]` =
+        concat_median(median_elix, min_elix, max_elix),
+      `Mean Elixhauser score (SD)` =
+        concat_mean(mean_elix, sd_elix)) %>%
+    pivot_longer(- neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value) %>%
+    column_to_rownames('name')
+}
+
 demo_stats <- function(df, var, ...){
   svar <- sym(var)
   df %>%
