@@ -1,5 +1,5 @@
 Neurological Disease Category,icd,icd9_desc,"Nervous system Involvement (1=central, 2=peripheral)"
-Muscle,40,Other bacterial diseases,?
+Muscle,040,Other bacterial diseases,2
 Psychiatric,298,Other nonorganic psychoses,1
 Headache,307,"Special symptoms or syndromes, not elsewhere classified",1
 Inflammatory,320,Bacterial meningitis,1
