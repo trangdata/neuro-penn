@@ -27,42 +27,42 @@ Change this following chunk of code for your site-specific data:
 
 ```{r penn, message=FALSE}
 # set.seed(1)
-mysite = 'penn'
-mask_thres = 10 # count mask threshold
-blur_abs = 0 # absolute max of blurring range
-clin_raw <-
-read_csv(
-  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
-  col_types = list(patient_num = col_character())
-)
-demo_raw <-
-read_csv(
-  '../thrombotic-penn/data/LocalPatientSummary.csv',
-  col_types = list(patient_num = col_character()),
-  na = '1900-01-01'
-)
-obs_raw <-
-read_csv(
-  '../thrombotic-penn/data/LocalPatientObservations.csv',
-  col_types = list(patient_num = col_character())
-)
+#mysite = 'penn'
+#mask_thres = 10 # count mask threshold
+#blur_abs = 0 # absolute max of blurring range
+#clin_raw <-
+#read_csv(
+#  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+#  col_types = list(patient_num = col_character())
+#)
+#demo_raw <-
+#read_csv(
+#  '../thrombotic-penn/data/LocalPatientSummary.csv',
+#  col_types = list(patient_num = col_character()),
+#  na = '1900-01-01'
+#)
+#obs_raw <-
+#read_csv(
+#  '../thrombotic-penn/data/LocalPatientObservations.csv',
+#  col_types = list(patient_num = col_character())
+#)
 ```
 
 
 ```{r nwu, message=FALSE}
-# mysite = 'nwu'
-# mask_thres = 0 # count mask threshold
-# blur_abs = 0 # absolute max of blurring range
-# 
-# clin_raw <- read_csv(
-#    '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
-#    col_types = list(patient_num = col_character()))
-# demo_raw <- read_csv(
-#    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-#    col_types = list(patient_num = col_character()),
-#    na = '1900-01-01')
-# obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
-#                      col_types = list(patient_num = col_character()))
+mysite = 'nwu'
+mask_thres = 0 # count mask threshold
+blur_abs = 0 # absolute max of blurring range
+ 
+clin_raw <- read_csv(
+    '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+    col_types = list(patient_num = col_character()))
+ demo_raw <- read_csv(
+    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+    col_types = list(patient_num = col_character()),
+    na = '1900-01-01')
+ obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+                      col_types = list(patient_num = col_character()))
 ```
 
 
@@ -71,12 +71,32 @@ read_csv(
 neuro_icds_10 <-
   read_excel('public-data/2020-09-10_neuro-icd10_CNSvPNS.xlsx') %>%
   rename('icd' = `ICD-10`,
-         'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`) %>%
+         'pns_cns' = `Nervous system Involvement (1=central, 2=peripheral)`, 
+         'icd_description' = `ICD-10 Description`) %>%
+  select(-`ICD-10_type (1=first three alphanumeric code only, 2=digits after decimal point)`) %>%
   mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(Central = '1',
-                                                     Peripheral = '2'))
+                                                     Peripheral = '2'),
+         concept_type = "DIAG-ICD10")
 
-neuro_icds_10[, -(1:2)] %>% 
+neuro_icds_9 <- read.csv('public-data/icd9_tab_CNSvPNS.csv') %>%
+  rename('Neurological Disease Category' = 'Neurological.Disease.Category',
+         'pns_cns' = `Nervous.system.Involvement..1.central..2.peripheral.`,
+         'icd_description' = `icd9_desc`) %>%
+  mutate(pns_cns = as.factor(pns_cns) %>% fct_recode(Central = '1',
+                                                     Peripheral = '2'),
+         concept_type = "DIAG-ICD9")
+
+neuro_icds_10[, -(1)] %>% 
   write_csv('results/neuro_icds_10_pcns.csv')
+
+neuro_icds_9[, -(1)] %>% 
+  write_csv('results/neuro_icds_9_pcns.csv')
+
+
+neuro_icds <- rbind(neuro_icds_10, neuro_icds_9)
+
+neuro_icds[, -(1)] %>% 
+  write_csv('results/neuro_icds_9_and_10_pcns.csv')
 ```
 
 ## Data pre-processing
@@ -92,8 +112,8 @@ We're only examining ICD-10 for now.
 neuro_patients <- obs_raw %>% 
   filter(
     days_since_admission >= 0,
-    concept_code %in% neuro_icds_10$icd) %>% 
-  distinct(patient_num, concept_code)
+    concept_type %in% neuro_icds$concept_type & concept_code %in% neuro_icds$icd) %>%
+  distinct(patient_num, concept_code, concept_type)
 
 neuro_pt_post <- unique(neuro_patients$patient_num)
   
@@ -179,7 +199,6 @@ readmission_obfus_table <- demo_df %>%
   left_join(readmissions, by = 'patient_num') %>% 
   replace_na(list(n_readmissions = 0)) %>% 
   readmission_stats(blur_abs, mask_thres)
-
 ```
 
 ## Comorbidity
@@ -362,10 +381,10 @@ nstay_df <- neuro_patients %>%
   left_join(demo_df, by = 'patient_num') %>%
   left_join(index_scores_elix, by = 'patient_num') %>%
   # mutate(concept_code = fct_reorder(concept_code, n_stay)) %>% 
-  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>%
+  left_join(neuro_icds, by = c('concept_code' = 'icd', 'concept_type')) %>%
   mutate(full_icd = case_when(
     concept_code == 'NN' ~ 'No neurological condition',
-    TRUE ~ paste0(`ICD-10 Description`, ' (', concept_code, ')')) %>%
+    TRUE ~ paste0(`icd_description`, ' (', concept_code, ')')) %>%
              as.factor() %>% fct_reorder(n_stay)) 
 
 summarised_obfus_icd <- nstay_df %>%
