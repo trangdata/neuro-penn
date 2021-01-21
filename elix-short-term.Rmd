@@ -306,7 +306,7 @@ scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
 scores_neuro <- obs_raw %>% 
   # 1 patient can have different code but each only counted once
   distinct(patient_num, concept_code) %>% 
-  left_join(neuro_icds_10, by = c('concept_code' = 'icd')) %>% 
+  left_join(neuro_icds, by = c('concept_code' = 'icd')) %>% 
   left_join(scores_unique, by = 'patient_num') %>% 
   filter(!is.na(elixhauser_score)) %>%
   mutate(concept_code = case_when(
