@@ -3,21 +3,29 @@ library(tidyverse)
 
 # The below was copied from the Comorbidity_Mapping.Rmd file in order to support sourcing it for other analyses.
 # df = obs_raw # (4ce LocalPatientObservations.csv)
-# comorb_names <- get_charlson_names() or get_elix_names()
-# t1 <- earliest time point to consider comorbidities
-# t2 <- latest time point to consider comorbidities
+# # comorb_names <- get_charlson_names() or get_elix_names()
+# # t1 <- earliest time point to consider comorbidities
+# # t2 <- latest time point to consider comorbidities
 # t1 = -365; t2 = -1;
 # example above will map all codes up to a year prior but before admission (admission = day 0)
 # num_days_prior_admission = -365 indicates that we consider all codes up to a year prior to the first COVID admission as comorbidities
 # day_of
-# map_type = 'charlson', 'elixhauser' - where charlson will be scored with quan-deyo
+# map_type = 'elixhauser' # where charlson will be scored with quan-deyo
 # truncate = TRUE # indicates we are using ICD codes truncated to the first 3 characters; set FALSE if you have full ICD codes
 
-map_char_elix_codes <- function(df, comorb_names, t1, t2, map_type, truncate = TRUE) {
+map_char_elix_codes <- function(df, icd_version, comorb_names,
+                                t1, t2, map_type, truncate = TRUE) {
 
   df <- df %>%
-    filter(concept_type %in% c("DIAG-ICD10", "DIAG-ICD9"),
-           days_since_admission >= t1 & days_since_admission <= t2)
+    filter(days_since_admission >= t1 & days_since_admission <= t2)
+
+  if (icd_version == 9){
+    df <- df %>%
+      filter(concept_type == "DIAG-ICD9")
+  } else {
+    df <- df %>%
+      filter(concept_type == "DIAG-ICD10")
+  }
 
   # Create separate df frames for ICD9 and 10 Codes
   # icd package does not support simultaneous processing of both ICD code types

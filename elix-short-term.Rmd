@@ -27,42 +27,44 @@ Change this following chunk of code for your site-specific data:
 
 ```{r penn, message=FALSE}
 # set.seed(1)
-#mysite = 'penn'
-#mask_thres = 10 # count mask threshold
-#blur_abs = 0 # absolute max of blurring range
-#clin_raw <-
-#read_csv(
-#  '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
-#  col_types = list(patient_num = col_character())
-#)
-#demo_raw <-
-#read_csv(
-#  '../thrombotic-penn/data/LocalPatientSummary.csv',
-#  col_types = list(patient_num = col_character()),
-#  na = '1900-01-01'
-#)
-#obs_raw <-
-#read_csv(
-#  '../thrombotic-penn/data/LocalPatientObservations.csv',
-#  col_types = list(patient_num = col_character())
-#)
+mysite = 'penn'
+mask_thres = 10 # count mask threshold
+blur_abs = 0 # absolute max of blurring range
+icd_version = 10
+
+clin_raw <-
+read_csv(
+ '../thrombotic-penn/data/LocalPatientClinicalCourse.csv',
+ col_types = list(patient_num = col_character())
+)
+demo_raw <-
+read_csv(
+ '../thrombotic-penn/data/LocalPatientSummary.csv',
+ col_types = list(patient_num = col_character()),
+ na = '1900-01-01'
+)
+obs_raw <-
+read_csv(
+ '../thrombotic-penn/data/LocalPatientObservations.csv',
+ col_types = list(patient_num = col_character())
+)
 ```
 
 
 ```{r nwu, message=FALSE}
-mysite = 'nwu'
-mask_thres = 0 # count mask threshold
-blur_abs = 0 # absolute max of blurring range
- 
-clin_raw <- read_csv(
-    '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
-    col_types = list(patient_num = col_character()))
- demo_raw <- read_csv(
-    '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
-    col_types = list(patient_num = col_character()),
-    na = '1900-01-01')
- obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
-                      col_types = list(patient_num = col_character()))
+# mysite = 'nwu'
+# mask_thres = 0 # count mask threshold
+# blur_abs = 0 # absolute max of blurring range
+#  
+# clin_raw <- read_csv(
+#     '../../Phase2.1/Date_Shifted_Files/LocalPatientClinicalCourse_Shift.csv',
+#     col_types = list(patient_num = col_character()))
+#  demo_raw <- read_csv(
+#     '../../Phase2.1/Date_Shifted_Files/LocalPatientSummary_Shift.csv',
+#     col_types = list(patient_num = col_character()),
+#     na = '1900-01-01')
+#  obs_raw <- read_csv('../../Phase2.1/LocalPatientObservations.csv',
+#                       col_types = list(patient_num = col_character()))
 ```
 
 
@@ -86,17 +88,23 @@ neuro_icds_9 <- read.csv('public-data/icd9_tab_CNSvPNS.csv') %>%
                                                      Peripheral = '2'),
          concept_type = "DIAG-ICD9")
 
-neuro_icds_10[, -(1)] %>% 
-  write_csv('results/neuro_icds_10_pcns.csv')
+if (icd_version == 9){
+  neuro_icds <- neuro_icds_9
+} else {
+  neuro_icds <- neuro_icds_10
+}
 
-neuro_icds_9[, -(1)] %>% 
-  write_csv('results/neuro_icds_9_pcns.csv')
-
-
-neuro_icds <- rbind(neuro_icds_10, neuro_icds_9)
-
-neuro_icds[, -(1)] %>% 
-  write_csv('results/neuro_icds_9_and_10_pcns.csv')
+# neuro_icds_10[, -(1)] %>% 
+#   write_csv('results/neuro_icds_10_pcns.csv')
+# 
+# neuro_icds_9[, -(1)] %>% 
+#   write_csv('results/neuro_icds_9_pcns.csv')
+# 
+# 
+# neuro_icds <- rbind(neuro_icds_10, neuro_icds_9)
+# 
+# neuro_icds[, -(1)] %>% 
+#   write_csv('results/neuro_icds_9_and_10_pcns.csv')
 ```
 
 ## Data pre-processing
@@ -172,7 +180,10 @@ demo_df <- demo_raw %>%
            fct_recode(Severe = "1", `Non-severe` = "0"),
          n_stay = as.numeric(last_discharge_date - admission_date,
                              units="days")) %>% 
-  left_join(days_count_min_max, by = 'patient_num')
+  left_join(days_count_min_max, by = 'patient_num') %>% 
+  left_join(readmissions, by = 'patient_num') %>% 
+  replace_na(list(n_readmissions = 0)) %>% 
+  {.}
 ```
 
 ## Demographics (Table 1)
@@ -195,10 +206,7 @@ Length of stay, number of readmissions, time to severity onset, time to death
 nstay_obfus_table <- nstay_stats(demo_df, blur_abs, mask_thres)
 severity_obfus_table <- severity_stats(demo_df, blur_abs, mask_thres)
 survival_obfus_table <- survival_stats(demo_df, blur_abs, mask_thres)
-readmission_obfus_table <- demo_df %>% 
-  left_join(readmissions, by = 'patient_num') %>% 
-  replace_na(list(n_readmissions = 0)) %>% 
-  readmission_stats(blur_abs, mask_thres)
+readmission_obfus_table <- readmission_stats(demo_df, blur_abs, mask_thres)
 ```
 
 ## Comorbidity
@@ -228,6 +236,7 @@ comorbs_elix <- as.vector(comorb_names_elix$Abbreviation)
 
 comorb_elix <- map_char_elix_codes(
   df = obs_raw,
+  icd_version = icd_version,
   comorb_names = comorb_names_elix,
   t1 = -365,
   t2 = -15,
@@ -301,7 +310,13 @@ comorb_unique %>%
 ### Elixhauser Comorbidity Table
 
 ```{r}
-scores_unique <- left_join(index_scores_elix, demo_df, by = 'patient_num')
+right_join0 <- function(x, y, fill = 0L, ...){
+  z <- right_join(x, y, ...)
+  tmp <- setdiff(names(z), names(y))
+  tidyr::replace_na(z, setNames(as.list(rep(fill, length(tmp))), tmp))
+}
+
+scores_unique <- right_join0(index_scores_elix, demo_df, by = 'patient_num')
 
 scores_neuro <- obs_raw %>% 
   # 1 patient can have different code but each only counted once
@@ -361,16 +376,29 @@ Resolution: Elixhauser score vs comorbidity type, Neurological condition (TRUE/F
 
 ```{r}
 severe_reg_elix <- glm(severe ~ neuro_post + elixhauser_score + sex + age_group + race,
-   data = scores_unique, family = 'binomial')
+   data = scores_unique, family = 'binomial') %>% 
+  summary()
 severe_reg_elix
+
 deceased_reg_elix <- glm(deceased ~ neuro_post + elixhauser_score + sex + age_group + race,
-   data = scores_unique, family = 'binomial')
+   data = scores_unique, family = 'binomial') %>% 
+  summary()
 deceased_reg_elix
 
-n_stay_reg_elix <- lm(n_stay ~ neuro_post + elixhauser_score + race + sex + age_group, 
-   data = scores_unique)
-
+n_stay_reg_elix <- lm(n_stay ~ neuro_post + elixhauser_score + sex + age_group + race, 
+   data = scores_unique) %>% 
+  summary()
 n_stay_reg_elix
+
+n_readmit_reg_elix <- lm(n_readmissions ~ neuro_post + elixhauser_score + sex + age_group + race, 
+   data = scores_unique) %>% 
+  summary()
+n_readmit_reg_elix
+
+readmit_reg_elix <- glm(readmitted ~ neuro_post + elixhauser_score + sex + age_group + race, 
+   data = scores_unique, family = 'binomial') %>% 
+  summary()
+readmit_reg_elix
 ```
 
 **Elixhauser**
@@ -400,7 +428,6 @@ summarised_obfus_icd <- nstay_df %>%
             prop_severe = mean(severe),
             .groups = 'drop') %>% 
   blur_it('n_patients', blur_abs, mask_thres)
-
 ```
 
 ```{r save-results}
@@ -419,7 +446,8 @@ list_results <- c(
     elix_mat = elix_mat,
     n_stay_reg_elix = n_stay_reg_elix,
     severe_reg_elix = severe_reg_elix,
-    deceased_reg_elix = deceased_reg_elix
+    deceased_reg_elix = deceased_reg_elix,
+    readmit_reg_elix = readmit_reg_elix
   )
 )
 
