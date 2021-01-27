@@ -248,12 +248,12 @@ list_table1 <- function(x, df, num_pats, comorb_names, ...){
     pat_col = x, ...)
 }
 
-process_tables <- function(index_scores, ...) {
-  get_table1(index_scores %>% filter(patient_num %in% neuro_pt_post), ...) %>%
-    rename('n_neuro_pats' = n_patients) %>%
-    left_join(get_table1(index_scores, ...),
-              by = c("Comorbidity", "Abbreviation"))
-}
+# process_tables <- function(index_scores, ...) {
+#   get_table1(index_scores %>% filter(patient_num %in% neuro_pt_post), ...) %>%
+#     rename('n_neuro_pats' = n_patients) %>%
+#     left_join(get_table1(index_scores, ...),
+#               by = c("Comorbidity", "Abbreviation"))
+# }
 
 get_charlson_names <- function(){
   data.frame(
@@ -265,9 +265,4 @@ get_quan_elix_names <- function(){
   data.frame(
     Comorbidity = do.call(rbind, names_quan_elix),
     Abbreviation = do.call(rbind, names_quan_elix_abbrev))
-}
-
-first_3 <- function(x) {
-  # retain first 3 characters of the ICD code
-  substr(x, 1, 3) %>% unique()
 }
