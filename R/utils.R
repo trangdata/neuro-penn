@@ -52,6 +52,24 @@ run_regression <-
     }
   }
 
+
+run_subgroup_regs <- function(df, include_race = TRUE) {
+  time_severe_reg_elix <-
+    run_regression(df, 'time_to_severe', FALSE, include_race)
+
+  time_deceased_reg_elix <-
+    run_regression(df, 'time_to_death', FALSE, include_race)
+
+  time_reg_elix <-
+    run_regression(df, 'time_to_first_readmission', FALSE, include_race)
+
+  list(
+    time_severe_reg_elix = time_severe_reg_elix,
+    time_deceased_reg_elix = time_deceased_reg_elix,
+    time_reg_elix = time_reg_elix
+  )
+}
+
 # library(epitools)
 # my_riskratio <- function (x, conf.level = 0.95,
 #                           correction = FALSE, verbose = FALSE)
