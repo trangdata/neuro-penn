@@ -10,130 +10,52 @@ concat_mean <- function(mea, s, acc = 0){
   paste0(round(mea, acc), ' (', round(s, acc), ')')
 }
 
-severity_stats <- function(df, ...) {
-  # summary statistics for severity status
+count_stats <- function(df, count_var, neg_var, ...) {
+  # summary statistics for survival/severity status
   # count values are obfuscated
 
+  count_var <- sym(count_var)
+  neg_var <- sym(neg_var)
+  Count_var <- sym(stringr::str_to_title(count_var))
+
   df %>%
-    select(neuro_post, time_severe = time_to_severe) %>%
+    select(neuro_post, count_var) %>%
     group_by(neuro_post) %>%
-    summarise(median_time = median(time_severe, na.rm = TRUE),
-              min_time = min(time_severe, na.rm = TRUE),
-              max_time = max(time_severe, na.rm = TRUE),
-              mean_time = mean(time_severe, na.rm = TRUE),
-              sd_time = sd(time_severe, na.rm = TRUE),
-              non_severe = sum(is.na(time_severe)),
+    summarise(!!neg_var := sum(!!count_var == 0),
               Total = n(),
               .groups = 'drop') %>%
-    blur_it(c('non_severe', 'Total'), ...) %>%
-    mutate(severe = Total - non_severe) %>%
+    blur_it(c(neg_var, 'Total'), ...) %>%
+    mutate(!!count_var := Total - !!neg_var) %>%
     transmute(
       neuro_post,
-      Nonsevere = concat(non_severe, non_severe/Total),
-      Severe = concat(severe, severe/Total),
-      `Median time to severity onset [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
-      `Mean time to severity onset (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
-    pivot_longer(-neuro_post) %>%
-    pivot_wider(names_from = neuro_post, values_from = value) %>%
-    column_to_rownames('name')
+      !!neg_var := concat(!!neg_var, !!neg_var/Total),
+      !!Count_var := concat(!!count_var, !!count_var/Total)) %>%
+    pivot_longer(- neuro_post) %>%
+    pivot_wider(names_from = neuro_post, values_from = value)
 }
 
-survival_stats <- function(df, ...) {
-  # summary statistics for survival status
-  # count values are obfuscated
-
-  df %>%
-    select(neuro_post, time_death = time_to_death) %>%
-    group_by(neuro_post) %>%
-    summarise(median_time = median(time_death, na.rm = TRUE),
-              min_time = min(time_death, na.rm = TRUE),
-              max_time = max(time_death, na.rm = TRUE),
-              mean_time = mean(time_death, na.rm = TRUE),
-              sd_time = sd(time_death, na.rm = TRUE),
-              alive = sum(is.na(time_death)),
-              Total = n(),
-              .groups = 'drop') %>%
-    blur_it(c('alive', 'Total'), ...) %>%
-    mutate(deceased = Total - alive) %>%
-    transmute(
-      neuro_post,
-      Alive = concat(alive, alive/Total),
-      Deceased = concat(deceased, deceased/Total),
-      `Median time to death [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
-      `Mean time to death (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
-    pivot_longer(-neuro_post) %>%
-    pivot_wider(names_from = neuro_post, values_from = value) %>%
-    column_to_rownames('name')
-}
-
-nstay_stats <- function(df, ...) {
+continuous_stats <- function(df, cont_var, name, ...) {
   # summary statistics for length of stay
   # count values are obfuscated
+  med <- sym(paste('Median', name, '[Min, Max]'))
+  mea <- sym(paste('Mean', name, '(SD)'))
+  cont_var <- sym(cont_var)
 
   df %>%
-    select(neuro_post, n_stay) %>%
+    select(neuro_post, cont_var) %>%
     group_by(neuro_post) %>%
-    summarise(median_time = median(n_stay, na.rm = TRUE),
-              min_time = min(n_stay, na.rm = TRUE),
-              max_time = max(n_stay, na.rm = TRUE),
-              mean_time = mean(n_stay, na.rm = TRUE),
-              sd_time = sd(n_stay, na.rm = TRUE),
+    summarise(median_var = median(!!cont_var, na.rm = TRUE),
+              min_var = min(!!cont_var, na.rm = TRUE),
+              max_var = max(!!cont_var, na.rm = TRUE),
+              mean_var = mean(!!cont_var, na.rm = TRUE),
+              sd_var = sd(!!cont_var, na.rm = TRUE),
               .groups = 'drop') %>%
     transmute(
       neuro_post,
-      `Median length of stay [Min, Max] (days)` = concat_median(median_time, min_time, max_time),
-      `Mean length of stay (SD) (days)` = concat_mean(mean_time, sd_time)) %>%
-    pivot_longer(-neuro_post) %>%
-    pivot_wider(names_from = neuro_post, values_from = value) %>%
-    column_to_rownames('name')
-}
-
-readmission_stats <- function(df, ...) {
-  # summary statistics for length of stay
-  # count values are obfuscated
-
-  df %>%
-    select(neuro_post, n_readmissions) %>%
-    group_by(neuro_post) %>%
-    summarise(median_readmis = median(n_readmissions, na.rm = TRUE),
-              min_readmis = min(n_readmissions, na.rm = TRUE),
-              max_readmis = max(n_readmissions, na.rm = TRUE),
-              mean_readmis = mean(n_readmissions, na.rm = TRUE),
-              sd_readmis = sd(n_readmissions, na.rm = TRUE),
-              .groups = 'drop') %>%
-    transmute(
-      neuro_post,
-      `Median number of readmissions [Min, Max]` =
-        concat_median(median_readmis, min_readmis, max_readmis),
-      `Mean number of readmissions (SD)` =
-        concat_mean(mean_readmis, sd_readmis)) %>%
+      !!med := concat_median(median_var, min_var, max_var),
+      !!mea := concat_mean(mean_var, sd_var)) %>%
     pivot_longer(- neuro_post) %>%
-    pivot_wider(names_from = neuro_post, values_from = value) %>%
-    column_to_rownames('name')
-}
-
-elix_stats <- function(df, ...) {
-  # summary statistics for Elixhauser score
-  # count values are obfuscated
-
-  df %>%
-    select(neuro_post, elixhauser_score) %>%
-    group_by(neuro_post) %>%
-    summarise(median_elix = median(elixhauser_score, na.rm = TRUE),
-              min_elix = min(elixhauser_score, na.rm = TRUE),
-              max_elix = max(elixhauser_score, na.rm = TRUE),
-              mean_elix = mean(elixhauser_score, na.rm = TRUE),
-              sd_elix = sd(elixhauser_score, na.rm = TRUE),
-              .groups = 'drop') %>%
-    transmute(
-      neuro_post,
-      `Median Elixhauser score [Min, Max]` =
-        concat_median(median_elix, min_elix, max_elix),
-      `Mean Elixhauser score (SD)` =
-        concat_mean(mean_elix, sd_elix)) %>%
-    pivot_longer(- neuro_post) %>%
-    pivot_wider(names_from = neuro_post, values_from = value) %>%
-    column_to_rownames('name')
+    pivot_wider(names_from = neuro_post, values_from = value)
 }
 
 demo_stats <- function(df, var, ...){
